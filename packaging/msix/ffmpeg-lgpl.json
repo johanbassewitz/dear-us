@@ -1,0 +1,8 @@
+{
+  "_comment": "LGPL ffmpeg shipped inside the Store package (no runtime download). Pin a dated BtbN 'win64-lgpl-shared' release: set url + sha256 (build-msix.ps1 -AllowUnpinnedFfmpeg prints the SHA-256 of the current 'latest' build to help).",
+  "url": "",
+  "sha256": "",
+  "license": "LGPL-2.1-or-later",
+  "source": "https://github.com/BtbN/FFmpeg-Builds (build scripts) and https://ffmpeg.org/download.html (FFmpeg source)",
+  "fallbackUrl": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip"
+}

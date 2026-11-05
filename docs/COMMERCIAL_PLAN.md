@@ -113,3 +113,21 @@ Dear Us transitions from an open-source/hobby desktop app into a cross-platform 
 1. **Unified Backend**: Migrate from user-supplied Supabase keys to your own managed Supabase/PostgreSQL instance.
 2. **Space Quota System**: Each couple's space record tracks `trial_ends_at`, `subscription_status`, `memory_count`, `media_bytes_used`, and `cupid_monthly_turns`.
 3. **Multi-Store IAP**: Integrate **RevenueCat** so purchasing Premium on an iPhone immediately upgrades the partner on Windows.
+
+---
+
+## 7. Implementation decisions (2026-11-05)
+
+| Topic | Decision |
+|---|---|
+| Launch platform | **Microsoft Store first.** Apple/Google later: see `docs/MOBILE_PLAN.md`. |
+| Payments | **Microsoft Store in-app purchases** (15%). Microsoft lists Lebanon for bank-transfer payouts in USD and is the merchant of record (handles VAT/tax). Stripe and PayPal can't pay out to Lebanon; Paddle (wire/Payoneer) is the fallback for web sales later. |
+| Packaging | MSIX (Store purchases need package identity) built by `packaging/msix/build-msix.ps1`. |
+| Backend | **Dear Us Cloud** (`cloud/`): one Rust service + Postgres on a small VPS, media chunks in Cloudflare R2. Stage 2 = managed Postgres, no code change. |
+| Free-tier limits | **Text/memories sync without limit.** Cloud **media: 100 MB per calendar month** (counted when a file actually goes through the cloud; Wi-Fi transfers are free and unlimited). The "50 memories" cap was dropped: the server can't count memories (end-to-end encrypted) and text costs nothing to relay. Wi-Fi sync for text may come later. |
+| Cupid | Our paid Gemini key behind the cloud. Arrows per couple: trial/premium 100/month, free/solo 10/month, top-ups never expire, failures refunded, the daily question pick is free. |
+| Trial | 30 days, starts when the partner joins (pairing). |
+| Existing users | The personal edition (own Supabase + Gemini key, GitHub updates) stays exactly as it is, as the default build. |
+| Not yet built | Password reset (email provider), automated cloud snapshots, free-tier limits on 4K media / creating capsules. |
+
+Release steps: `docs/STORE_RELEASE.md`. Server: `cloud/README.md`.

@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy these three values from Partner Center → your app → Product management → Product identity. build-msix.ps1 uses them unless -IdentityName/-Publisher/-PublisherDisplayName are passed.",
+  "identityName": "XXXXXPublisherName.DearUs",
+  "publisher": "CN=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+  "publisherDisplayName": "Dear Us"
+}

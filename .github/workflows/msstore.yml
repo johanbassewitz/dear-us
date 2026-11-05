@@ -1,0 +1,55 @@
+# Builds the Microsoft Store edition (.msix) for upload in Partner Center.
+# Run it by hand: Actions → "Microsoft Store package" → Run workflow.
+# Needs repository variables (Settings → Secrets and variables → Actions → Variables):
+#   MS_IDENTITY_NAME, MS_PUBLISHER (CN=...), MS_PUBLISHER_DISPLAY_NAME, DEARUS_CLOUD_URL
+# This never touches the GitHub releases / auto-updates of the personal edition.
+name: Microsoft Store package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: store
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Rust tests (Store edition)
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          $env:TAURI_CONFIG = Get-Content tauri.microsoftstore.conf.json -Raw
+          cargo test --no-default-features --features store
+
+      - name: Build .msix
+        shell: pwsh
+        run: >
+          ./packaging/msix/build-msix.ps1
+          -IdentityName "${{ vars.MS_IDENTITY_NAME }}"
+          -Publisher "${{ vars.MS_PUBLISHER }}"
+          -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME }}"
+          -CloudUrl "${{ vars.DEARUS_CLOUD_URL }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DearUs-msix
+          path: dist-msix/*.msix
+          if-no-files-found: error

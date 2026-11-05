@@ -25,7 +25,7 @@ export function PlanCard() {
   const show = useUpgrade((s) => s.show);
   const [restoring, setRestoring] = useState(false);
   if (isLoading) return null;
-  if (!plan) return <p className="text-[12.5px] text-muted">Set up partner sync below and your plan shows up here. Your 30-day free trial starts when your partner joins.</p>;
+  if (!plan) return <p className="text-[12.5px] text-muted">Set up partner sync and your plan shows up here. Your 30-day free trial starts when your partner joins.</p>;
   const d = describePlan(plan);
   const cap = plan.mediaCapBytes;
   return (

@@ -213,6 +213,58 @@ button:disabled {
 .cupid-breathe {
   animation: cupid-breathe 4.8s ease-in-out infinite;
 }
+.cupid-sprite {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: rotate(var(--cupid-bank, 0deg));
+  transition: transform 0.6s ease;
+  filter: drop-shadow(0 8px 10px rgba(120, 60, 60, 0.2));
+}
+.cupid-sprite-pose {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.cupid-sprite-pose img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.cupid-wing-left {
+  clip-path: polygon(0 42%, 20% 55%, 25% 79%, 0 83%);
+  transform-origin: 24% 70%;
+  animation: cupid-wing-left 2.8s ease-in-out infinite;
+}
+.cupid-wing-right {
+  clip-path: polygon(100% 23%, 73% 48%, 67% 70%, 100% 75%);
+  transform-origin: 70% 62%;
+  animation: cupid-wing-right 2.8s ease-in-out infinite;
+}
+.cupid-body {
+  clip-path: polygon(0 0, 100% 0, 100% 23%, 73% 48%, 67% 70%, 100% 75%, 100% 100%, 0 100%, 0 83%, 25% 79%, 20% 55%, 0 42%);
+}
+@keyframes cupid-wing-left {
+  0%, 100% { transform: rotate(0) scaleX(1); }
+  50% { transform: rotate(9deg) scaleX(0.86); }
+}
+@keyframes cupid-wing-right {
+  0%, 100% { transform: rotate(0) scaleX(1); }
+  50% { transform: rotate(-9deg) scaleX(0.86); }
+}
+.cupid-sprite.is-flying .cupid-wing { animation-duration: 0.55s; }
+.cupid-sprite.is-flying .cupid-float { animation-duration: 1.3s; }
+.cupid-sprite.is-held { transform: scale(1.05); }
+.cupid-sprite.is-held .cupid-sprite-pose,
+.cupid-sprite.is-held .cupid-wing { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .cupid-float, .cupid-breathe, .cupid-wing { animation: none !important; }
+  .cupid-sprite { transition: none; transform: none; }
+}
 
 /* ---------- scrapbook: paper and frames (journal entries) ---------- */
 .paper-dots {

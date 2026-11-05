@@ -6,25 +6,13 @@ import { useProfile } from "../lib/queries";
 import { useCupidStatus } from "./cupidApi";
 import { CupidChat } from "./CupidChat";
 import { toast } from "../components/ui/Toast";
-import happy from "./assets/cupid-happy.webp";
-import thinking from "./assets/cupid-thinking.webp";
-import sleeping from "./assets/cupid-sleeping.webp";
+import { CupidSprite } from "./CupidSprite";
+import { clampPos, CUPID_WIDTH as W, CUPID_HEIGHT as H, useCupidFlight } from "./useCupidFlight";
 
 export type CupidMood = "happy" | "thinking" | "sleeping";
-const SPRITES: Record<CupidMood, string> = { happy, thinking, sleeping };
-
-const W = 150; // rendered width (sprite is 4:3)
-const H = 112;
-const MARGIN = 8;
 const SLEEP_AFTER_MS = 2 * 60_000;
 const DRAG_THRESHOLD = 4;
-
-export function clampPos(pos: { right: number; bottom: number }, vw: number, vh: number) {
-  return {
-    right: Math.round(Math.min(Math.max(pos.right, MARGIN), Math.max(MARGIN, vw - W - MARGIN))),
-    bottom: Math.round(Math.min(Math.max(pos.bottom, MARGIN), Math.max(MARGIN, vh - H - MARGIN))),
-  };
-}
+export { clampPos } from "./useCupidFlight";
 
 export function Cupid() {
   const visible = usePrefs((s) => s.prefs["cupid.visible"]);
@@ -39,17 +27,17 @@ export function Cupid() {
   const [asleep, setAsleep] = useState(false);
   const [hoverAsk, setHoverAsk] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [held, setHeld] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const { data: cupid } = useCupidStatus();
   const drag = useRef<{ x: number; y: number; right: number; bottom: number; moved: boolean } | null>(null);
   const root = useRef<HTMLDivElement>(null);
-
-  // Keep Cupid on screen when the window is resized.
-  useEffect(() => {
-    const onResize = () => setPos((p) => clampPos(p, window.innerWidth, window.innerHeight));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+  const { flying, bank } = useCupidFlight({
+    position: pos,
+    setPosition: setPos,
+    paused: !visible || open || chatOpen || asleep || held || focused,
+  });
 
   // Doze off after a while without activity; wake on any interaction.
   useEffect(() => {
@@ -84,6 +72,7 @@ export function Cupid() {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    setHeld(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     drag.current = { x: e.clientX, y: e.clientY, right: pos.right, bottom: pos.bottom, moved: false };
   };
@@ -101,6 +90,7 @@ export function Cupid() {
     setPos(clampPos({ right: d.right - dx, bottom: d.bottom - dy }, window.innerWidth, window.innerHeight));
   };
   const onPointerUp = () => {
+    setHeld(false);
     const d = drag.current;
     drag.current = null;
     if (!d) return;
@@ -131,7 +121,9 @@ export function Cupid() {
   const item = "flex w-full items-center gap-3 rounded-[13px] border border-line bg-paper px-4 py-2.5 text-left text-[13px] font-semibold text-ink-soft transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent-deep";
 
   return (
-    <div ref={root} className="fixed z-[70]" style={{ right: pos.right, bottom: pos.bottom, width: W, height: H }}>
+    <div ref={root} className="fixed z-[70]" style={{ right: pos.right, bottom: pos.bottom, width: W, height: H }}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}>
       {open && (
         <div
           className={`animate-fade-up absolute w-[250px] ${menuAbove ? "bottom-full mb-2" : "top-full mt-2"} ${onLeftHalf ? "left-0" : "right-0"}`}
@@ -197,6 +189,7 @@ export function Cupid() {
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
           drag.current = null;
+          setHeld(false);
           setDragging(false);
         }}
         onKeyDown={(e) => {
@@ -207,14 +200,7 @@ export function Cupid() {
         }}
         className={`h-full w-full touch-none select-none rounded-full transition-transform duration-200 hover:scale-[1.04] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
       >
-        <img
-          src={SPRITES[mood]}
-          alt=""
-          draggable={false}
-          className={`pointer-events-none h-full w-full object-contain drop-shadow-[0_10px_14px_rgba(120,60,60,0.25)] ${
-            dragging ? "scale-105" : mood === "sleeping" ? "cupid-breathe" : "cupid-float"
-          }`}
-        />
+        <CupidSprite mood={mood} flying={flying} bank={bank} dragging={dragging} />
       </button>
       {chatOpen && <CupidChat onClose={() => setChatOpen(false)} />}
     </div>

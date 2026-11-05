@@ -5,8 +5,7 @@ import { Loader, Send, Trash2, X } from "lucide-react";
 import { cupidApi, cupidKeys, type ChatMessage } from "./cupidApi";
 import { queryClient } from "../lib/queries";
 import { toastError } from "../components/ui/Toast";
-import happy from "./assets/cupid-happy.webp";
-import thinking from "./assets/cupid-thinking.webp";
+import { CupidSprite } from "./CupidSprite";
 
 /** A small chat with Cupid. History stays on this PC only. */
 export function CupidChat({ onClose }: { onClose: () => void }) {
@@ -44,7 +43,7 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div role="dialog" aria-label="Chat with Cupid" className="animate-fade-up fixed right-6 bottom-6 z-[95] flex h-[min(560px,80vh)] w-[min(380px,92vw)] flex-col overflow-hidden rounded-[22px] border border-line bg-paper shadow-[var(--shadow-lg)]">
       <div className="flex items-center gap-3 border-b border-line-soft bg-hero px-4 py-3">
-        <img src={busy ? thinking : happy} alt="" className="h-10 w-14 object-contain" />
+        <div className="h-10 w-14"><CupidSprite mood={busy ? "thinking" : "happy"} /></div>
         <div className="flex-1">
           <strong className="font-serif text-[17px]">Cupid</strong>
           <div className="text-[10.5px] text-muted">Can't see your journal or letters, only this chat.</div>

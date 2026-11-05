@@ -32,20 +32,22 @@ pub fn cupid_set_option(state: State<AppState>, name: String, value: String) -> 
     cupid::status(&conn)
 }
 
-/// Checks the key with a tiny request, then stores it in Windows Credential Manager.
+/// Checks the key with Google (without using a model), then stores it in Windows Credential Manager.
 #[tauri::command]
 pub async fn cupid_set_key(app: AppHandle, key: String) -> AppResult<CupidStatus> {
     let key = key.trim().to_string();
     if key.len() < 20 || key.len() > 200 || key.chars().any(char::is_whitespace) {
         return Err(AppError::invalid("That doesn't look like a Gemini API key."));
     }
-    let (device, model) = {
+    let device = {
         let s = app.state::<AppState>();
         let conn = s.db.lock().unwrap();
-        (crate::sync::device_id(&conn)?, cupid::status(&conn)?.model)
+        crate::sync::device_id(&conn)?
     };
     let k = key.clone();
-    blocking(move || cupid::generate(&k, &model, "Reply with the single word OK.", &[("user".into(), "Hello".into())], false)).await?;
+    // A rejected key is never saved. If Google is just busy or unreachable, the key is
+    // saved anyway (it can't be judged right now) and the first chat will tell.
+    blocking(move || cupid::check_key(&k)).await?;
     crate::secrets::set(&cupid::secret_name(&device), &key)?;
     let s = app.state::<AppState>();
     let conn = s.db.lock().unwrap();

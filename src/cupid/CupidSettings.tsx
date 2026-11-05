@@ -24,6 +24,7 @@ export function CupidSettings() {
   const { data: st } = useCupidStatus();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
   if (!isDesktop) return <p className="text-[12.5px] text-muted">Cupid's brain works in the desktop app.</p>;
   if (!st) return null;
   const update = (s: unknown) => queryClient.setQueryData(cupidKeys.status, s);
@@ -54,19 +55,32 @@ export function CupidSettings() {
           Get a free key at <b>aistudio.google.com</b> → <b>Get API key</b>, using your own Google account. Free-tier availability depends on your country. The key is kept in
           Windows Credential Manager on this PC only, and never synced.
         </p>
-        <Field label="Gemini API key" type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" placeholder="AIza…" />
+        <Field
+          label="Gemini API key"
+          type="password"
+          value={key}
+          onChange={(e) => {
+            setKey(e.target.value);
+            setKeyError(null);
+          }}
+          autoComplete="off"
+          placeholder="Paste your key"
+          error={keyError}
+          hint={busy ? "Checking the key with Google…" : undefined}
+        />
         <div className="flex gap-2">
           <Button
             disabled={busy || key.trim().length < 20}
             icon={busy ? <Loader size={14} className="animate-spin" /> : <KeyRound size={14} />}
             onClick={async () => {
               setBusy(true);
+              setKeyError(null);
               try {
                 update(await cupidApi.setKey(key));
                 setKey("");
                 toast("Cupid is awake ♡");
               } catch (e) {
-                toastError(String(e));
+                setKeyError(String(e).replace(/^Error:\s*/, ""));
               } finally {
                 setBusy(false);
               }

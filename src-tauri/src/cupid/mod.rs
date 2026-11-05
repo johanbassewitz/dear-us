@@ -77,29 +77,78 @@ pub fn set_option(conn: &Connection, name: &str, value: &str) -> AppResult<()> {
     meta_set(conn, key, if value == "1" || value == "true" { "1" } else { "0" })
 }
 
+/// Tried after the chosen model when Google says it's overloaded (503) or failing (500).
+const FALLBACK_MODEL: &str = "gemini-flash-lite-latest";
+
+fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(15)).timeout(Duration::from_secs(90)).build()
+}
+
+/// Turns a failed Gemini request into a message for people. `busy` = worth trying another model.
+fn explain(e: ureq::Error) -> (AppError, bool) {
+    match e {
+        ureq::Error::Status(code, resp) => {
+            let msg = resp.into_json::<Value>().ok().and_then(|v| v["error"]["message"].as_str().map(String::from)).unwrap_or_default();
+            let low = msg.to_lowercase();
+            match code {
+                400 if low.contains("api key") => (AppError::invalid("Gemini didn't accept that API key."), false),
+                400 if low.contains("location") => (AppError::invalid("Gemini's free tier isn't available in your country yet."), false),
+                401 | 403 => (AppError::invalid("Gemini refused the key. Check it's copied completely, and that the Gemini API is enabled for it in Google AI Studio."), false),
+                404 => (AppError::invalid("Gemini doesn't know that model name. Try gemini-flash-latest in Cupid's settings."), false),
+                429 => (AppError::invalid("Cupid needs a little rest: the free Gemini limit was reached. Try again later."), false),
+                500 | 502 | 503 | 504 => (AppError::invalid("Gemini is very busy right now (that's on Google's side). Try again in a few minutes."), true),
+                _ => (AppError::invalid(format!("Gemini said: {} ({code})", msg.chars().take(200).collect::<String>())), false),
+            }
+        }
+        ureq::Error::Transport(t) => {
+            let detail = t.to_string();
+            let msg = if detail.to_lowercase().contains("timed out") {
+                "Gemini took too long to answer (it may be very busy). Try again in a few minutes.".to_string()
+            } else {
+                format!("Cupid can't reach Gemini right now. Are you online? ({})", detail.chars().take(120).collect::<String>())
+            };
+            (AppError::invalid(msg), true)
+        }
+    }
+}
+
+/// Checks a key without depending on any model being available: lists one model.
+/// Ok(true) = accepted, Ok(false) = Google couldn't be asked right now (busy/offline), Err = rejected.
+pub fn check_key(api_key: &str) -> AppResult<bool> {
+    match agent().get(&format!("{ENDPOINT}?pageSize=1")).set("x-goog-api-key", api_key).call() {
+        Ok(_) => Ok(true),
+        Err(e) => match explain(e) {
+            (_, true) => Ok(false),
+            (err, false) => Err(err),
+        },
+    }
+}
+
 /// One Gemini call. `turns` = (role "user"|"model", text). `json` asks for a JSON reply.
+/// If the model is overloaded, tries the lighter fallback model once.
 pub fn generate(api_key: &str, model: &str, system: &str, turns: &[(String, String)], json_reply: bool) -> AppResult<String> {
     let body = request_body(system, turns, json_reply);
-    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(15)).timeout(Duration::from_secs(60)).build();
-    let r = agent
-        .post(&format!("{ENDPOINT}/{model}:generateContent"))
-        .set("x-goog-api-key", api_key)
-        .send_json(body)
-        .map_err(|e| match e {
-            ureq::Error::Status(code, resp) => {
-                let msg = resp.into_json::<Value>().ok().and_then(|v| v["error"]["message"].as_str().map(String::from)).unwrap_or_default();
-                match code {
-                    400 if msg.to_lowercase().contains("api key") => AppError::invalid("Gemini didn't accept that API key."),
-                    403 => AppError::invalid("Gemini refused the request (is the key right, and is Gemini available in your country?)."),
-                    404 => AppError::invalid("Gemini doesn't know that model name. Try gemini-flash-latest in Cupid's settings."),
-                    429 => AppError::invalid("Cupid needs a little rest: the free Gemini limit was reached. Try again later."),
-                    _ => AppError::invalid(format!("Gemini said: {} ({code})", msg.chars().take(200).collect::<String>())),
-                }
+    let mut models = vec![model];
+    if model != FALLBACK_MODEL {
+        models.push(FALLBACK_MODEL);
+    }
+    let mut last = None;
+    for m in models {
+        match agent().post(&format!("{ENDPOINT}/{m}:generateContent")).set("x-goog-api-key", api_key).send_json(body.clone()) {
+            Ok(r) => {
+                let v: Value = r.into_json().map_err(|e| AppError::invalid(e.to_string()))?;
+                return parse_reply(&v);
             }
-            ureq::Error::Transport(_) => AppError::invalid("Cupid can't reach Gemini right now (offline?)."),
-        })?;
-    let v: Value = r.into_json().map_err(|e| AppError::invalid(e.to_string()))?;
-    parse_reply(&v)
+            Err(e) => {
+                let (err, busy) = explain(e);
+                if !busy {
+                    return Err(err);
+                }
+                last = Some(err);
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| AppError::invalid("Gemini didn't answer.")))
 }
 
 pub fn request_body(system: &str, turns: &[(String, String)], json_reply: bool) -> Value {

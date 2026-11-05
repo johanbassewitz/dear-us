@@ -40,7 +40,7 @@ export function Toasts() {
       {items.map((t) => (
         <div
           key={t.id}
-          className="animate-fade-up pointer-events-auto flex items-center gap-2.5 rounded-xl bg-[#3d3435] px-4 py-3 text-[12.5px] text-white shadow-lg"
+          className="animate-fade-up pointer-events-auto flex items-center gap-2.5 rounded-xl bg-[#3d3435] px-4 py-3 text-[12.5px] text-white shadow-lg ring-1 ring-white/20"
         >
           {t.tone === "error" ? <TriangleAlert size={15} className="text-[#f2b8a8]" /> : <Heart size={15} className="text-[#dfb4c0]" />}
           {t.text}

@@ -480,3 +480,81 @@ fn if_the_partner_never_shows_up_directly_the_cloud_takes_over() {
     let row = crate::db::repo::media::get(&b.db.lock().unwrap(), &pid).unwrap().unwrap();
     assert_eq!(std::fs::read(b.store.original(&row.hash, &row.ext)).unwrap(), bytes);
 }
+
+#[test]
+fn when_the_cloud_allowance_is_used_up_files_still_go_over_the_home_network() {
+    let (relay, key, a, b) = pair();
+    let (pid, bytes) = a.photo("capped.png", (400, 300));
+    a.entry("Capped", "x", vec![pid.clone()]);
+    let chunk = 4096;
+    let b_ep = serve_for(&b, &key, chunk);
+    let a_ep = serve_for(&a, &key, chunk);
+    let to_b = super::direct::DirectClient::new(key.clone(), [(b.device.clone(), b_ep)].into_iter().collect());
+    let to_a = super::direct::DirectClient::new(key.clone(), [(a.device.clone(), a_ep)].into_iter().collect());
+    // free tier, nothing left this month; the direct grace period is long over
+    let ctx_a = Ctx { db: &a.db, direct: Some(&to_b), store: &a.store, relay: &relay, key: &key, device: a.device.clone(), chunk_size: chunk, quota_cap: 0 };
+    let ctx_b = Ctx { db: &b.db, direct: Some(&to_a), store: &b.store, relay: &relay, key: &key, device: b.device.clone(), chunk_size: chunk, quota_cap: 0 };
+    ctx_a.sync_once().unwrap();
+    a.db.lock().unwrap().execute("UPDATE sync_blobs SET direct_since = '2000-01-01T00:00:00Z'", []).unwrap();
+    let r = ctx_a.sync_once().unwrap();
+    assert!(!r.waiting_for_space, "{r:?}");
+    assert!(relay.0.lock().unwrap().chunks.is_empty(), "nothing uploaded to the cloud");
+    assert_eq!(ctx_b.sync_once().unwrap().downloaded_files, 1);
+    let row = crate::db::repo::media::get(&b.db.lock().unwrap(), &pid).unwrap().unwrap();
+    assert_eq!(std::fs::read(b.store.original(&row.hash, &row.ext)).unwrap(), bytes);
+    // away from home it waits (safely) instead
+    let (pid2, _) = a.photo("later.png", (200, 100));
+    a.entry("Later", "x", vec![pid2]);
+    let away = Ctx { direct: None, ..ctx_a };
+    away.sync_once().unwrap();
+    a.db.lock().unwrap().execute("UPDATE sync_blobs SET direct_since = '2000-01-01T00:00:00Z' WHERE state = 'queued'", []).unwrap();
+    assert!(away.sync_once().unwrap().waiting_for_space);
+}
+
+/// The real sync engine, two PCs, through a running Dear Us Cloud server (Store edition):
+///   DEARUS_CLOUD_TEST_URL=http://127.0.0.1:8080 cargo test --no-default-features --features store cloud_engine -- --ignored
+#[cfg(feature = "store")]
+#[test]
+#[ignore]
+fn cloud_engine_memory_with_photo_travels_and_the_mailbox_empties() {
+    use super::cloud::{redeem_invite, sign_up, CloudRelay};
+    let url = std::env::var("DEARUS_CLOUD_TEST_URL").expect("DEARUS_CLOUD_TEST_URL");
+    let a = Peer::new("Jo", "Sam");
+    let b = Peer::new("Sam", "Jo");
+    let key = SpaceKey::generate();
+    let email = |n: &str| format!("{n}-{}@engine.dearus", uuid::Uuid::now_v7());
+    let sa = sign_up(&url, "", &email("jo"), "password-jo").unwrap().unwrap();
+    let sb = sign_up(&url, "", &email("sam"), "password-sam").unwrap().unwrap();
+    let space = uuid::Uuid::now_v7().to_string();
+    let ra = CloudRelay::new(&url, "", &space, sa, Box::new(|_| {}));
+    ra.create_space().unwrap();
+    ra.register_device(&a.device, "Jo's PC").unwrap();
+    let secret = format!("engine-{space}");
+    ra.create_invite(&super::crypto::sha256_hex(&secret)).unwrap();
+    redeem_invite(&url, "", &sb, &secret).unwrap();
+    let rb = CloudRelay::new(&url, "", &space, sb, Box::new(|_| {}));
+    rb.register_device(&b.device, "Sam's PC").unwrap();
+
+    let run = |p: &Peer, relay: &CloudRelay| {
+        Ctx { db: &p.db, direct: None, store: &p.store, relay, key: &key, device: p.device.clone(), chunk_size: 64 * 1024, quota_cap: ra.plan().unwrap().engine_cap() }
+            .sync_once()
+            .unwrap()
+    };
+    let (pid, bytes) = a.photo("cloud.png", (900, 700));
+    let id = a.entry("Through the cloud", "Sealed on Jo's PC", vec![pid.clone()]);
+    let r1 = run(&a, &ra);
+    assert!(r1.sent_ops > 0 && r1.uploaded_files == 1, "{r1:?}");
+    let r2 = run(&b, &rb);
+    assert!(r2.received_ops > 0 && r2.downloaded_files == 1, "{r2:?}");
+    assert_eq!(b.get(&id).summary.title, "Through the cloud");
+    let row = crate::db::repo::media::get(&b.db.lock().unwrap(), &pid).unwrap().unwrap();
+    assert_eq!(std::fs::read(b.store.original(&row.hash, &row.ext)).unwrap(), bytes, "byte-identical");
+    // confirmations travel back; both sides clean up
+    run(&a, &ra);
+    run(&b, &rb);
+    run(&a, &ra);
+    assert!(rb.fetch_envelopes(&b.device, 0, 100).unwrap().is_empty(), "Sam's mailbox emptied");
+    assert!(ra.fetch_envelopes(&a.device, 0, 100).unwrap().is_empty(), "Jo's mailbox emptied");
+    assert!(ra.blob_meta(&row.hash).unwrap().is_none(), "file removed from the cloud");
+    assert_eq!(ra.plan().unwrap().tier, "trial");
+}

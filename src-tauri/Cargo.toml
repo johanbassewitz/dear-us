@@ -35,8 +35,21 @@ bip39 = "2"
 sha2 = "0.10"
 base64 = "0.22"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# Microsoft Store purchases (Store edition only)
+windows = { version = "0.61", optional = true, features = ["Services_Store", "Foundation", "Foundation_Collections", "Win32_Foundation", "Win32_UI_Shell"] }
+
+[features]
+# Two editions from one codebase:
+# - default ("personal"): bring-your-own Supabase + own Gemini key, GitHub auto-updates.
+# - store: Microsoft Store edition: Dear Us Cloud, plans, Cupid gateway, Store purchases,
+#   no self-updater (the Store updates the app). Build with --no-default-features --features store.
+default = ["updater"]
+updater = ["dep:tauri-plugin-updater", "dep:tauri-plugin-process"]
+store = ["dep:windows"]
 
 [dev-dependencies]
 tempfile = "3"

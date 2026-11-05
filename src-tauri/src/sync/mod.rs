@@ -1,4 +1,7 @@
 pub mod apply;
+pub mod backend;
+#[cfg(feature = "store")]
+pub mod cloud;
 pub mod crypto;
 pub mod direct;
 pub mod engine;
@@ -6,6 +9,8 @@ pub mod hlc;
 pub mod identity;
 pub mod oplog;
 pub mod relay;
+// the personal edition's mailbox (kept compiled in the Store edition for its tests)
+#[cfg_attr(feature = "store", allow(dead_code))]
 pub mod supabase;
 pub mod service;
 #[cfg(test)]

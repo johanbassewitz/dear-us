@@ -8,8 +8,6 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "notification:default",
-    "updater:default",
-    "process:allow-restart"
+    "notification:default"
   ]
 }

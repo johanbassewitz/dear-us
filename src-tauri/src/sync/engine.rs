@@ -26,7 +26,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Mutex;
 
 pub const DEFAULT_CHUNK: i64 = 8 * 1024 * 1024;
-/// Stay well under Supabase's free 1 GB storage.
+/// Stay well under Supabase's free 1 GB storage (personal edition).
+#[cfg_attr(feature = "store", allow(dead_code))]
 pub const DEFAULT_QUOTA_CAP: i64 = 700 * 1024 * 1024;
 const OPS_PER_ENVELOPE: i64 = 300;
 /// How long a file waits for a direct transfer before it goes through the cloud anyway.
@@ -340,7 +341,11 @@ impl Ctx<'_> {
                     .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
                     .map(|t| chrono::Utc::now().signed_duration_since(t) < chrono::Duration::minutes(DIRECT_GRACE_MINUTES))
                     .unwrap_or(true);
-                if done == 0 && in_grace && (direct_peer.is_some() || direct_since.is_some()) {
+                // When the cloud allowance is used up, files keep going over the home network
+                // whenever the partner's PC is reachable (free tier: unlimited Wi-Fi sync).
+                let go_direct = in_grace && (direct_peer.is_some() || direct_since.is_some())
+                    || direct_peer.is_some() && self.relay.used_bytes()? + size > self.quota_cap;
+                if done == 0 && go_direct {
                     self.relay.put_blob_meta(
                         &BlobMeta { hash: hash.clone(), size, chunk_size: self.chunk_size, chunk_count: count, sender_device: self.device.clone() },
                         partners,

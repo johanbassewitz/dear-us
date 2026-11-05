@@ -1,4 +1,6 @@
 mod backup;
+#[cfg(feature = "store")]
+mod billing;
 mod commands;
 mod cupid;
 mod db;
@@ -56,13 +58,16 @@ fn maintenance(conn: &mut Connection, store: &media::Store) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // Remembers window size/position between launches.
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init());
+    // Personal edition: signed auto-updates from GitHub Releases. The Store edition has no
+    // self-updater: the Microsoft Store updates it.
+    #[cfg(feature = "updater")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
+    builder
         .register_asynchronous_uri_scheme_protocol("media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             std::thread::spawn(move || responder.respond(media::protocol::handle(&app, &request)));
@@ -185,6 +190,9 @@ pub fn run() {
             commands::backup::bin_list,
             commands::backup::bin_restore,
             commands::backup::bin_purge,
+            commands::plan::plan_get,
+            commands::plan::billing_purchase,
+            commands::plan::billing_restore,
             commands::cupid::cupid_status,
             commands::cupid::cupid_set_option,
             commands::cupid::cupid_set_key,

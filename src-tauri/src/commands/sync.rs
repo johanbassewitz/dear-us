@@ -4,7 +4,7 @@ use crate::db::repo::profile::{self, ProfileInput};
 use crate::error::{AppError, AppResult};
 use crate::sync::crypto::{random_token, sha256_hex, SpaceKey};
 use crate::sync::service::{self, Config, Status, SyncService};
-use crate::sync::supabase::{self, Session, SupabaseRelay};
+use crate::sync::backend::{self, AccountRelay, Session};
 use crate::sync::{apply, identity};
 use crate::AppState;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -46,8 +46,8 @@ pub fn sync_status(app: AppHandle) -> Status {
 
 #[tauri::command]
 pub async fn sync_check_project(url: String, anon_key: String) -> AppResult<i64> {
-    let url = supabase::normalize_url(&url)?;
-    tauri::async_runtime::spawn_blocking(move || supabase::check_project(&url, anon_key.trim()))
+    let url = backend::normalize_url(&url)?;
+    tauri::async_runtime::spawn_blocking(move || backend::check_project(&url, anon_key.trim()))
         .await
         .map_err(|e| AppError::invalid(e.to_string()))?
 }
@@ -68,18 +68,18 @@ pub async fn sync_connect_account(
     password: String,
     create: bool,
 ) -> AppResult<AccountResult> {
-    let url = supabase::normalize_url(&url)?;
+    let url = backend::normalize_url(&url)?;
     let anon = anon_key.trim().to_string();
     let email = check_email(&email)?;
     check_password(&password)?;
     let session = {
         let (u, a, e) = (url.clone(), anon.clone(), email.clone());
         tauri::async_runtime::spawn_blocking(move || -> AppResult<Option<Session>> {
-            supabase::check_project(&u, &a)?;
+            backend::check_project(&u, &a)?;
             if create {
-                supabase::sign_up(&u, &a, &e, &password)
+                backend::sign_up(&u, &a, &e, &password)
             } else {
-                supabase::sign_in(&u, &a, &e, &password).map(Some)
+                backend::sign_in(&u, &a, &e, &password).map(Some)
             }
         })
         .await
@@ -102,7 +102,7 @@ pub async fn sync_connect_account(
     }
 }
 
-fn session_relay(app: &AppHandle, space: &str) -> AppResult<Arc<SupabaseRelay>> {
+fn session_relay(app: &AppHandle, space: &str) -> AppResult<Arc<AccountRelay>> {
     let state = app.state::<AppState>();
     let (cfg, dev) = {
         let conn = state.db.lock().unwrap();
@@ -110,7 +110,7 @@ fn session_relay(app: &AppHandle, space: &str) -> AppResult<Arc<SupabaseRelay>> 
     };
     let cfg = cfg.ok_or_else(|| AppError::invalid("Connect your Supabase project first."))?;
     let token = crate::secrets::get(&service::secret_name(&dev, "refresh"))?.ok_or_else(|| AppError::invalid("Please sign in first."))?;
-    Ok(Arc::new(SupabaseRelay::from_refresh(&cfg.url, &cfg.anon, space, &token, service::refresh_saver(&dev))?))
+    Ok(Arc::new(AccountRelay::from_refresh(&cfg.url, &cfg.anon, space, &token, service::refresh_saver(&dev))?))
 }
 
 /// First PC: creates the shared space and its encryption key. Returns the recovery phrase.
@@ -182,7 +182,12 @@ fn parse_invite(code: &str) -> AppResult<InvitePayload> {
     let body = code.trim().strip_prefix(INVITE_PREFIX).ok_or_else(|| AppError::invalid("That doesn't look like a Dear Us invite code."))?;
     let raw = URL_SAFE_NO_PAD.decode(body.trim()).map_err(|_| AppError::invalid("The invite code seems cut off. Copy it again."))?;
     let p: InvitePayload = serde_json::from_slice(&raw).map_err(|_| AppError::invalid("The invite code seems damaged. Copy it again."))?;
-    supabase::normalize_url(&p.u)?;
+    let _url = backend::normalize_url(&p.u)?;
+    // The two editions use different clouds, so their invites don't mix.
+    #[cfg(feature = "store")]
+    if p.u.trim_end_matches('/') != _url {
+        return Err(AppError::invalid("This invite is from the personal (self-hosted) edition of Dear Us. Ask your partner to install Dear Us from the Microsoft Store and send a new code."));
+    }
     SpaceKey::from_b64(&p.k)?;
     Ok(p)
 }
@@ -214,7 +219,7 @@ pub async fn sync_join(app: AppHandle, input: JoinInput) -> AppResult<JoinResult
     let a = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> AppResult<JoinResult> {
         let session = if input.create_account {
-            match supabase::sign_up(&inv.u, &inv.a, &email, &input.password)? {
+            match backend::sign_up(&inv.u, &inv.a, &email, &input.password)? {
                 Some(s) => s,
                 None => {
                     // remember the project so "I've confirmed my email" can sign in later
@@ -225,13 +230,13 @@ pub async fn sync_join(app: AppHandle, input: JoinInput) -> AppResult<JoinResult
                 }
             }
         } else {
-            supabase::sign_in(&inv.u, &inv.a, &email, &input.password)?
+            backend::sign_in(&inv.u, &inv.a, &email, &input.password)?
         };
-        let space = supabase::redeem_invite(&inv.u, &inv.a, &session, &inv.i)?;
+        let space = backend::redeem_invite(&inv.u, &inv.a, &session, &inv.i)?;
         let state = a.state::<AppState>();
         let dev = device(&state)?;
         service::store_refresh(&dev, &session.refresh_token)?;
-        let relay = Arc::new(SupabaseRelay::new(&inv.u, &inv.a, &space, session, service::refresh_saver(&dev)));
+        let relay = Arc::new(AccountRelay::new(&inv.u, &inv.a, &space, session, service::refresh_saver(&dev)));
         relay.register_device(&dev, &service::device_name())?;
         service::store_key(&dev, &SpaceKey::from_b64(&inv.k)?)?;
         {
@@ -272,7 +277,7 @@ pub async fn sync_sign_in(app: AppHandle, password: String) -> AppResult<()> {
     };
     let cfg = cfg.ok_or_else(|| AppError::invalid("Sync isn't set up."))?;
     let email = cfg.email.clone().ok_or_else(|| AppError::invalid("No email saved."))?;
-    let s = tauri::async_runtime::spawn_blocking(move || supabase::sign_in(&cfg.url, &cfg.anon, &email, &password))
+    let s = tauri::async_runtime::spawn_blocking(move || backend::sign_in(&cfg.url, &cfg.anon, &email, &password))
         .await
         .map_err(|e| AppError::invalid(e.to_string()))??;
     service::store_refresh(&dev, &s.refresh_token)?;

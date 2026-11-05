@@ -1,0 +1,64 @@
+# Builds the Windows installer and publishes it as a GitHub Release.
+# Run it by pushing a version tag:  git tag v1.0.1 && git push origin v1.0.1
+# The release includes latest.json, which installed copies of Dear Us check to update themselves.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Dear Us __VERSION__
+          releaseBody: |
+            **New to Dear Us?** Download **`DearUs-Setup.exe`** below and open it. If Windows says "Windows protected your PC", click **More info → Run anyway**.
+
+            **Already have it?** Nothing to do: the app updates itself (or go to Settings & Sync → Updates → Check for updates).
+
+            Setup guide: https://github.com/johanbassewitz/dear-us/blob/main/docs/USER_GUIDE.md
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+
+      # A copy with a fixed name, so one link always downloads the newest installer:
+      # https://github.com/johanbassewitz/dear-us/releases/latest/download/DearUs-Setup.exe
+      - name: Upload DearUs-Setup.exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $exe = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Copy-Item $exe.FullName DearUs-Setup.exe
+          gh release upload "v$version" DearUs-Setup.exe --clobber

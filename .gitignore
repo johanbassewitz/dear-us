@@ -1,0 +1,14 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+*.log
+.vite/
+coverage/
+# local dev data
+.dearus-dev/
+tsconfig.tsbuildinfo
+cupid_transparent_sprites.zip
+*.key
+*.key.password
+.env*

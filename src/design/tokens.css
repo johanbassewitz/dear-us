@@ -1,0 +1,148 @@
+/* Dear Us design tokens. A theme = a set of these variables.
+   Personal appearance (theme) is local to each PC and never synced. */
+
+:root,
+[data-theme="paper"] {
+  color-scheme: light;
+  --bg: #f7f3ed;
+  --sidebar: #fbf8f3;
+  --topbar: #f9f6f1;
+  --paper: #fffdf9;
+  --paper-2: #fbf6f0;
+  --ink: #332e2d;
+  --ink-soft: #564a47;
+  --muted: #8e837f;
+  --faint: #ada29b;
+  --line: #eae2d9;
+  --line-soft: #f1eae5;
+  --accent: #a34f62;
+  --accent-deep: #81394e;
+  --accent-soft: #f3e4e6;
+  --accent-ring: #d6aab6;
+  --on-accent: #ffffff;
+  --blush: #f6e5e5;
+  --lilac: #eee7f4;
+  --sage: #e9efe4;
+  --gold: #f1e9db;
+  --hero: #f5e5e4;
+  --hero-line: #e9d3d5;
+  --couple: #fbefef;
+  --shadow: 0 9px 24px rgba(80, 45, 45, 0.04);
+  --shadow-lg: 0 28px 90px rgba(36, 28, 37, 0.22);
+}
+
+[data-theme="rose"] {
+  color-scheme: light;
+  --bg: #fbf0f0;
+  --sidebar: #fdf6f6;
+  --topbar: #fcf3f3;
+  --paper: #fffafa;
+  --paper-2: #fdf3f3;
+  --ink: #3a2c2f;
+  --ink-soft: #5e4549;
+  --muted: #977b80;
+  --faint: #b89ca1;
+  --line: #f0dcdf;
+  --line-soft: #f6e8ea;
+  --accent: #b4536b;
+  --accent-deep: #8f3b52;
+  --accent-soft: #f8e1e7;
+  --accent-ring: #e2a9b8;
+  --on-accent: #ffffff;
+  --blush: #f9e3e7;
+  --lilac: #f2e6f2;
+  --sage: #edf1e8;
+  --gold: #f8ecdf;
+  --hero: #f8e0e5;
+  --hero-line: #efcbd3;
+  --couple: #fbe9ec;
+  --shadow: 0 9px 24px rgba(120, 45, 65, 0.05);
+  --shadow-lg: 0 28px 90px rgba(60, 20, 35, 0.22);
+}
+
+[data-theme="lavender"] {
+  color-scheme: light;
+  --bg: #f4f1f8;
+  --sidebar: #f9f7fc;
+  --topbar: #f7f4fa;
+  --paper: #fdfcff;
+  --paper-2: #f7f3fb;
+  --ink: #312c3a;
+  --ink-soft: #4f4760;
+  --muted: #877f94;
+  --faint: #a69db3;
+  --line: #e6e0ef;
+  --line-soft: #efeaf5;
+  --accent: #7d5a9e;
+  --accent-deep: #5f4280;
+  --accent-soft: #ece4f5;
+  --accent-ring: #c4b0dc;
+  --on-accent: #ffffff;
+  --blush: #f5e6ee;
+  --lilac: #ebe3f5;
+  --sage: #e8eee6;
+  --gold: #f3ede2;
+  --hero: #ebe3f3;
+  --hero-line: #dccfea;
+  --couple: #f1eaf8;
+  --shadow: 0 9px 24px rgba(60, 40, 90, 0.05);
+  --shadow-lg: 0 28px 90px rgba(30, 20, 50, 0.22);
+}
+
+[data-theme="sage"] {
+  color-scheme: light;
+  --bg: #f1f4ee;
+  --sidebar: #f8faf6;
+  --topbar: #f4f7f1;
+  --paper: #fdfefb;
+  --paper-2: #f5f8f2;
+  --ink: #2d332e;
+  --ink-soft: #46524a;
+  --muted: #7d887f;
+  --faint: #9eaa9f;
+  --line: #dfe7da;
+  --line-soft: #eaf0e6;
+  --accent: #5b7d61;
+  --accent-deep: #44624a;
+  --accent-soft: #e1ecdf;
+  --accent-ring: #a9c4ad;
+  --on-accent: #ffffff;
+  --blush: #f4e8e4;
+  --lilac: #eae8f1;
+  --sage: #e2ecdf;
+  --gold: #f2ede0;
+  --hero: #e3ece0;
+  --hero-line: #cfdcca;
+  --couple: #e9f1e6;
+  --shadow: 0 9px 24px rgba(40, 70, 45, 0.05);
+  --shadow-lg: 0 28px 90px rgba(20, 35, 25, 0.22);
+}
+
+[data-theme="cozy-dark"] {
+  color-scheme: dark;
+  --bg: #1d181a;
+  --sidebar: #231d20;
+  --topbar: #211b1e;
+  --paper: #2a2326;
+  --paper-2: #30282b;
+  --ink: #f3e9e6;
+  --ink-soft: #dccdca;
+  --muted: #ab9c9d;
+  --faint: #8a7b7d;
+  --line: #3d3336;
+  --line-soft: #352c2f;
+  --accent: #e29aae;
+  --accent-deep: #f0b6c4;
+  --accent-soft: #3e2b32;
+  --accent-ring: #b06f82;
+  --on-accent: #2a161c;
+  --blush: #3a2a2f;
+  --lilac: #302a38;
+  --sage: #29302a;
+  --gold: #352e25;
+  --hero: #33252b;
+  --hero-line: #4a353d;
+  --couple: #34262c;
+  --shadow: 0 9px 24px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 28px 90px rgba(0, 0, 0, 0.55);
+}

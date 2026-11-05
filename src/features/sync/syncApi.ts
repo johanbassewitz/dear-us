@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { call, isDesktop } from "../../lib/api";
 import { queryClient } from "../../lib/queries";
+import type { Plan } from "../plan/planApi";
 
 export type SyncState =
   | "off"
@@ -44,6 +45,8 @@ export interface SyncStatus {
   relayBytes: number | null;
   directEnabled: boolean;
   directPeer: boolean;
+  /** Store edition: the couple's plan, last known. */
+  plan?: Plan | null;
 }
 export interface SyncConflict {
   id: string;
@@ -122,6 +125,12 @@ export function describe(s: SyncStatus | undefined, partner = "your partner"): {
     case "offline":
       return { label: "Offline", tone: "gray", sentence: "You're offline. Keep going: everything is saved here and will sync when you're back online." };
     case "waiting_for_space":
+      if (s.plan)
+        return {
+          label: "Photos wait for Wi-Fi",
+          tone: "gold",
+          sentence: `Your memories keep syncing. This month's free cloud space for photos and videos is used up, so new ones travel over your home Wi-Fi when you're both home, or through the cloud next month.`,
+        };
       return { label: "Cloud space full", tone: "gold", sentence: `The temporary cloud space is full for now. Big files wait safely here until ${partner}'s PC picks up the earlier ones.` };
     case "signed_out":
       return { label: "Sign in to sync", tone: "accent", sentence: "Your sign-in expired. Your memories are safe here; sign in again to keep syncing." };

@@ -9,6 +9,8 @@ import { keys, useAppInfo, useCapabilities, useProfile } from "../../lib/queries
 import { THEMES, usePrefs } from "../../lib/settings";
 import { api, isDesktop } from "../../lib/api";
 import { ProfileForm } from "./ProfileForm";
+import { useIsStore } from "../../lib/edition";
+import { PlanCard } from "../plan/PlanCard";
 import { ensureNotificationPermission } from "../special/useReminders";
 import { toast, toastError } from "../../components/ui/Toast";
 import { Button } from "../../components/ui/Button";
@@ -88,6 +90,7 @@ function ConverterCard() {
 export function SettingsPage() {
   const { data: profile, isLoading } = useProfile();
   const { data: info } = useAppInfo();
+  const store = useIsStore();
   const prefs = usePrefs((s) => s.prefs);
   const setPref = usePrefs((s) => s.set);
 
@@ -187,9 +190,20 @@ export function SettingsPage() {
       </div>
 
       <div className="mt-5">
-        <Section title="Partner sync" desc="Your memories travel encrypted through your own free Supabase project and stay permanently on both PCs.">
-          <SyncSettings />
-        </Section>
+        {store ? (
+          <div className="grid gap-5 lg:grid-cols-[1fr_1.4fr]">
+            <Section title="Your plan" desc="One plan covers both of you.">
+              <PlanCard />
+            </Section>
+            <Section title="Partner sync" desc="Your memories travel end-to-end encrypted through the Dear Us cloud and stay permanently on both PCs. We can't read them.">
+              <SyncSettings />
+            </Section>
+          </div>
+        ) : (
+          <Section title="Partner sync" desc="Your memories travel encrypted through your own free Supabase project and stay permanently on both PCs.">
+            <SyncSettings />
+          </Section>
+        )}
       </div>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
@@ -202,13 +216,18 @@ export function SettingsPage() {
       </div>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        <Section title="Cupid's brain" desc="Optional. Cupid can chat, pick the daily question and suggest dates using your own free Gemini key.">
+        <Section
+          title="Cupid's brain"
+          desc={store ? "Optional. Cupid can chat, pick the daily question and suggest dates." : "Optional. Cupid can chat, pick the daily question and suggest dates using your own free Gemini key."}
+        >
           <CupidSettings />
         </Section>
-        <Section title="Photo & video converter" desc="Needed to show iPhone HEIC photos and HEVC/.mov videos. Originals are always saved, either way.">
-          <ConverterCard />
-        </Section>
-        <Section title="Updates" desc="New versions install themselves in a minute. Your memories are never touched.">
+        {!store && (
+          <Section title="Photo & video converter" desc="Needed to show iPhone HEIC photos and HEVC/.mov videos. Originals are always saved, either way.">
+            <ConverterCard />
+          </Section>
+        )}
+        <Section title="Updates" desc={store ? "Your memories are never touched by updates." : "New versions install themselves in a minute. Your memories are never touched."}>
           <UpdateSettings currentVersion={info?.version} />
         </Section>
       </div>

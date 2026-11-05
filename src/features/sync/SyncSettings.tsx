@@ -5,6 +5,7 @@ import setupSql from "../../../supabase/setup.sql?raw";
 import { describe, syncApi, syncKeys, useSyncStatus, type SyncConflict } from "./syncApi";
 import { JoinForm } from "./JoinForm";
 import { useProfile, queryClient } from "../../lib/queries";
+import { useIsStore } from "../../lib/edition";
 import { isDesktop } from "../../lib/api";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
@@ -35,6 +36,66 @@ function Step({ n, title, done, children }: { n: number; title: string; done?: b
         <div className="mt-1.5 text-[12px] leading-relaxed text-muted">{children}</div>
       </div>
     </li>
+  );
+}
+
+/** Store edition: a Dear Us account (email + password). Nothing else to set up. */
+function CloudSetup() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [haveAccount, setHaveAccount] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
+
+  if (joining)
+    return (
+      <div>
+        <p className="mb-4 text-[12.5px] text-muted">Paste the invite code your partner sent you, and create your own Dear Us account (or sign in to it).</p>
+        <JoinForm needName={false} onJoined={() => toast("You're connected ♡ Your memories will start syncing.")} />
+        <button onClick={() => setJoining(false)} className="mt-4 text-[12px] text-muted hover:text-ink">
+          ← I'm the first of us to set this up
+        </button>
+      </div>
+    );
+
+  const connect = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await syncApi.connectAccount("", "", email, password, !haveAccount);
+      refresh();
+    } catch (e) {
+      setError(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-xl bg-paper-2 p-4 text-[12.5px] leading-relaxed text-ink-soft">
+        <b>Did your partner already set this up?</b> Then you only need their invite code.{" "}
+        <button onClick={() => setJoining(true)} className="font-bold text-accent hover:underline">
+          Join with an invite code →
+        </button>
+      </div>
+      <p className="text-[12.5px] text-muted">
+        Each of you has your own Dear Us account. Your memories are locked with a key that only exists on your two PCs, so not even we can read them.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Your email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+        <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={haveAccount ? "current-password" : "new-password"} hint="At least 8 characters" />
+      </div>
+      <label className="flex items-center gap-2 text-[12px] text-ink-soft">
+        <input type="checkbox" checked={haveAccount} onChange={(e) => setHaveAccount(e.target.checked)} className="accent-[var(--accent)]" /> I already have a Dear Us account
+      </label>
+      {error && <p className="text-[12px] text-[#b0413e]">{error}</p>}
+      <div>
+        <Button onClick={connect} disabled={busy || !email || password.length < 8} icon={busy ? <Loader size={15} className="animate-spin" /> : <Cloud size={15} />}>
+          {haveAccount ? "Sign in" : "Create my account"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -318,6 +379,7 @@ function fmtWhen(iso: string | null) {
 
 function Dashboard() {
   const { data: s } = useSyncStatus();
+  const store = useIsStore();
   const { data: profile } = useProfile();
   const [phrase, setPhrase] = useState<string | null>(null);
   const [askPhrase, setAskPhrase] = useState(false);
@@ -369,6 +431,7 @@ function Dashboard() {
         </p>
       )}
       <ConflictList />
+      {!store && (
       <div>
         <div className="mb-1.5 flex justify-between text-[11px] text-muted">
           <span>Temporary cloud space in use</span>
@@ -379,6 +442,8 @@ function Dashboard() {
         </div>
         <p className="mt-1.5 text-[11px] text-faint">Files only wait here until your partner's PC has them, then they're deleted.</p>
       </div>
+      )}
+      {store && <p className="text-[11px] text-faint">The cloud is only a mailbox: everything is deleted from it as soon as your partner's PC has it.</p>}
       <div>
         <strong className="mb-2 block text-[12.5px]">Devices</strong>
         <ul className="divide-y divide-line-soft rounded-xl border border-line">
@@ -436,7 +501,7 @@ function Dashboard() {
         </Button>
       </div>
       <p className="text-[11px] text-faint">
-        {s.email} · {s.projectUrl}
+        {store ? s.email : `${s.email} · ${s.projectUrl}`}
       </p>
 
       <ConfirmDialog
@@ -549,14 +614,23 @@ function CreateOrJoin() {
 
 export function SyncSettings() {
   const { data: s, isLoading } = useSyncStatus();
+  const store = useIsStore();
   if (!isDesktop) return <p className="text-[12.5px] text-muted">Partner sync works in the desktop app.</p>;
   if (isLoading || !s) return null;
-  if (!s.configured) return <SetupWizard />;
+  if (!s.configured) return store ? <CloudSetup /> : <SetupWizard />;
   if (!s.paired && !s.signedIn)
     return (
       <div className="flex flex-col gap-3">
         <p className="text-[12.5px] text-muted">
-          Your project is connected. Now sign in as <b>{s.email}</b>. If you just created this sign-in, click the confirmation link Supabase emailed you first.
+          {store ? (
+            <>
+              Sign in again as <b>{s.email}</b>.
+            </>
+          ) : (
+            <>
+              Your project is connected. Now sign in as <b>{s.email}</b>. If you just created this sign-in, click the confirmation link Supabase emailed you first.
+            </>
+          )}
         </p>
         <SignInAgain />
         <button
@@ -566,7 +640,7 @@ export function SyncSettings() {
           }}
           className="self-start text-[11.5px] text-muted hover:text-ink"
         >
-          Use a different project or email
+          {store ? "Use a different email" : "Use a different project or email"}
         </button>
       </div>
     );

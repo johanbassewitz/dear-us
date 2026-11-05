@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { KeyRound, Loader, ShieldAlert, Trash2 } from "lucide-react";
-import { cupidApi, cupidKeys, useCupidStatus } from "./cupidApi";
+import { Feather, KeyRound, Loader, ShieldAlert, Trash2 } from "lucide-react";
+import { cupidApi, cupidKeys, useCupidStatus, type CupidStatus } from "./cupidApi";
 import { queryClient } from "../lib/queries";
 import { isDesktop } from "../lib/api";
 import { Button } from "../components/ui/Button";
@@ -19,6 +19,52 @@ function Toggle({ label, desc, on, onChange }: { label: string; desc: string; on
   );
 }
 
+/** Store edition: Cupid comes with Dear Us (our paid Gemini key, behind the Dear Us cloud). */
+function CloudCupidSettings({ st, opt }: { st: CupidStatus; opt: (name: string, value: boolean | string) => Promise<unknown> }) {
+  if (!st.privacyAck)
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-3 rounded-xl bg-paper-2 p-4 text-[12.5px] leading-relaxed text-ink-soft">
+          <ShieldAlert size={18} className="mt-0.5 shrink-0 text-accent" />
+          <div>
+            <strong className="block">How Cupid thinks</strong>
+            Cupid answers with Google Gemini, through the Dear Us cloud. We use Google's paid API, where Google doesn't use what you send to improve its products, and the
+            Dear Us cloud passes your messages on without keeping them. Cupid only ever sees what you type to him, a shortlist of questions, or your date-idea filters.
+            Never your journal, letters, time capsules, photos or videos.
+          </div>
+        </div>
+        <div>
+          <Button onClick={() => opt("privacyAck", true)}>Turn Cupid on</Button>
+        </div>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-3">
+      {st.hasKey ? (
+        <p className="flex items-center gap-2 rounded-lg bg-sage px-3 py-2 text-[12px] text-[#3f6545]">
+          <Feather size={14} /> Cupid is on.
+          {st.arrows ? ` ${st.arrows.remaining} arrow${st.arrows.remaining === 1 ? "" : "s"} left (one per chat message or set of date ideas).` : ""}
+        </p>
+      ) : (
+        <p className="rounded-lg bg-gold px-3 py-2 text-[12px] text-ink-soft">Cupid wakes up once you're connected: set up partner sync above first.</p>
+      )}
+      <Toggle label="Cupid picks the daily question" desc="From a shortlist of our questions. Free, it doesn't use arrows." on={st.dailyQuestion} onChange={(v) => opt("dailyQuestion", v)} />
+      <Toggle label="Date ideas from Cupid" desc="In the Date planner → Date inspiration." on={st.dateIdeas} onChange={(v) => opt("dateIdeas", v)} />
+      <Toggle
+        label="Let Cupid see open bucket-list titles"
+        desc="Only the titles, to inspire date ideas. Off by default."
+        on={st.shareBucketTitles}
+        onChange={(v) => opt("shareBucketTitles", v)}
+      />
+      <div className="border-t border-line-soft pt-3">
+        <Button variant="ghost" size="sm" onClick={() => opt("privacyAck", false)}>
+          Turn Cupid off
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Each person adds their OWN free Gemini key. Nothing is built into the app. */
 export function CupidSettings() {
   const { data: st } = useCupidStatus();
@@ -29,6 +75,7 @@ export function CupidSettings() {
   if (!st) return null;
   const update = (s: unknown) => queryClient.setQueryData(cupidKeys.status, s);
   const opt = async (name: string, value: boolean | string) => update(await cupidApi.setOption(name, typeof value === "boolean" ? (value ? "1" : "0") : value));
+  if (st.cloud) return <CloudCupidSettings st={st} opt={opt} />;
 
   if (!st.privacyAck)
     return (

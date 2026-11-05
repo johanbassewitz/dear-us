@@ -6,6 +6,8 @@ export interface AppInfo {
   version: string;
   dataDir: string;
   schemaVersion: number;
+  /** "personal": own Supabase + Gemini key, GitHub updates. "store": Microsoft Store edition. */
+  edition?: "personal" | "store";
 }
 export interface Person {
   id: string;

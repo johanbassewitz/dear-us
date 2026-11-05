@@ -27,6 +27,9 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorBoundary } from "../components/ui/ErrorBoundary";
 import { useSyncEvents } from "../features/sync/syncApi";
 import { UpdateBanner, useAutoUpdateCheck } from "../features/updates/updates";
+import { usePlanEvents } from "../features/plan/planApi";
+import { PlanBanner } from "../features/plan/PlanBanner";
+import { UpgradeDialog } from "../features/plan/Purchase";
 
 function Page({ page }: { page: PageId }) {
   switch (page) {
@@ -94,6 +97,7 @@ function Shell() {
   useMediaEvents();
   useReminders();
   useAutoUpdateCheck();
+  usePlanEvents();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,6 +122,7 @@ function Shell() {
       <div id="main-scroll" className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         <TopBar onSearch={() => setPaletteOpen(true)} />
         <main className="mx-auto w-full max-w-[1480px] px-10 pt-9 pb-20">
+          <PlanBanner />
           <ErrorBoundary resetKey={`${page}-${JSON.stringify(journalView)}`}>
             <Page key={page} page={page} />
           </ErrorBoundary>
@@ -127,6 +132,7 @@ function Shell() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <LeaveGuard />
       <UpdateBanner />
+      <UpgradeDialog />
     </div>
   );
 }

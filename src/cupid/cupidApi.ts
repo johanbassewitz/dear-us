@@ -1,8 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { call, isDesktop, type IdeaInput } from "../lib/api";
 
+export interface CupidArrows {
+  /** Left right now: this month's allowance + top-up arrows. */
+  remaining: number;
+  allowance: number;
+  used: number;
+  bonus: number;
+  tier: string;
+  canBuy: boolean;
+}
 export interface CupidStatus {
   enabled: boolean;
+  /** Store edition: Cupid runs through the Dear Us cloud, no personal key. */
+  cloud?: boolean;
+  arrows?: CupidArrows | null;
+  /** Personal edition: a Gemini key is saved. Store edition: connected to the cloud. */
   hasKey: boolean;
   privacyAck: boolean;
   model: string;

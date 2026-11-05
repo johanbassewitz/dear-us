@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Loader, Send, Trash2, X } from "lucide-react";
-import { cupidApi, cupidKeys, type ChatMessage } from "./cupidApi";
+import { Feather, Loader, Send, Trash2, X } from "lucide-react";
+import { cupidApi, cupidKeys, useCupidStatus, type ChatMessage } from "./cupidApi";
 import { queryClient } from "../lib/queries";
+import { quotaError } from "../features/plan/planApi";
+import { BuyButton, useUpgrade } from "../features/plan/Purchase";
 import { toastError } from "../components/ui/Toast";
 import { CupidSprite } from "./CupidSprite";
 
@@ -12,6 +14,9 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
   const { data: history } = useQuery({ queryKey: cupidKeys.history, queryFn: cupidApi.history });
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [outOfArrows, setOutOfArrows] = useState(false);
+  const { data: st } = useCupidStatus();
+  const showUpgrade = useUpgrade((s) => s.show);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Newer WebView2 engines return a Promise, which isn't a React cleanup function.
@@ -32,10 +37,14 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
     queryClient.setQueryData<ChatMessage[]>(cupidKeys.history, (h) => [...(h ?? []), optimistic]);
     try {
       await cupidApi.chat(m);
+      setOutOfArrows(false);
     } catch (e) {
-      toastError(String(e));
+      const q = quotaError(e);
+      if (q.code === "cupid_quota") setOutOfArrows(true);
+      else toastError(q.message);
     } finally {
       await queryClient.invalidateQueries({ queryKey: cupidKeys.history });
+      queryClient.invalidateQueries({ queryKey: cupidKeys.status });
       setBusy(false);
     }
   };
@@ -47,6 +56,11 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
         <div className="flex-1">
           <strong className="font-serif text-[17px]">Cupid</strong>
           <div className="text-[10.5px] text-muted">Can't see your journal or letters, only this chat.</div>
+          {st?.cloud && st.arrows && (
+            <div className="mt-0.5 flex items-center gap-1 text-[10.5px] font-semibold text-accent-deep" title="One arrow per message. They refill on the 1st of each month.">
+              <Feather size={11} /> {st.arrows.remaining} arrow{st.arrows.remaining === 1 ? "" : "s"} left
+            </div>
+          )}
         </div>
         <button
           onClick={async () => {
@@ -72,6 +86,22 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ))}
+        {outOfArrows && (
+          <div className="rounded-2xl bg-gold p-3.5 text-[12px] leading-relaxed text-ink-soft">
+            <strong className="block">Cupid's quiver is empty for this month</strong>
+            His arrows refill on the 1st. Or top up now: extra arrows never expire.
+            {st?.arrows?.canBuy && (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <BuyButton product="arrows_100" onDone={() => setOutOfArrows(false)} />
+                {st.arrows.tier !== "premium" && (
+                  <button onClick={showUpgrade} className="text-[11.5px] font-semibold text-accent hover:underline">
+                    Premium: 100 a month →
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {busy && (
           <div className="flex items-center gap-2 text-[12px] text-muted">
             <Loader size={13} className="animate-spin" /> Cupid is thinking…

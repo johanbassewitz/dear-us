@@ -1,6 +1,6 @@
 [package]
 name = "dear-us"
-version = "1.0.1"
+version = "1.0.2"
 description = "Dear Us — a private shared relationship journal"
 edition = "2021"
 

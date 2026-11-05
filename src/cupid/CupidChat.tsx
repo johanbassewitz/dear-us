@@ -14,7 +14,10 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ block: "end" }), [history, busy]);
+  useEffect(() => {
+    // Newer WebView2 engines return a Promise, which isn't a React cleanup function.
+    end.current?.scrollIntoView({ block: "end" });
+  }, [history, busy]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);

@@ -39,9 +39,13 @@ services:
         sync: false
       - key: R2_SECRET_ACCESS_KEY
         sync: false
-      # --- Cupid: Google Gemini (paid tier) ---
-      - key: GEMINI_API_KEY
+      # --- Cupid: AI through OpenRouter (pay as you go; cheap model by default) ---
+      - key: OPENROUTER_API_KEY
         sync: false
+      - key: OPENROUTER_MODEL
+        value: google/gemini-2.5-flash-lite
+      - key: OPENROUTER_FALLBACK_MODEL
+        value: openai/gpt-4o-mini
       # --- password-reset emails: Resend ---
       - key: RESEND_API_KEY
         sync: false

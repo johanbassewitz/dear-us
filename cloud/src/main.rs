@@ -15,7 +15,7 @@ async fn main() {
     tracing::info!(
         "starting: storage={}, cupid={}, microsoft_store={}",
         if cfg.r2.is_some() { "r2" } else { "local disk" },
-        cfg.gemini_key.is_some(),
+        if cfg.openrouter_key.is_some() { "openrouter" } else if cfg.gemini_key.is_some() { "gemini" } else { "off" },
         cfg.microsoft.is_some()
     );
     let state = build_state(cfg).await.unwrap_or_else(|e| {

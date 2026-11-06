@@ -97,12 +97,13 @@ value) → **Save changes**. Render restarts the server with them.
 5. 🔒 Into Render's Environment: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT` =
    `https://<your account id>.r2.cloudflarestorage.com` (shown on the same page).
 
-**6.2 Google Gemini (Cupid)**
-1. aistudio.google.com → **Get API key → Create API key** (in a new Google Cloud project).
-2. Turn on billing for that project (AI Studio shows **Set up billing**; add your card). This
-   makes it the paid tier, where Google doesn't use the messages to improve its products.
-3. Google Cloud console → **Billing → Budgets & alerts** → budget $20/month with email alerts.
-4. 🔒 Into Render's Environment: `GEMINI_API_KEY`.
+**6.2 OpenRouter (Cupid)**
+1. Sign up at openrouter.ai → **Credits** → add $5–10 (card or crypto). Pay as you go; no prepayment rules.
+2. **Settings → Privacy**: make sure prompts are not used for training/logging.
+3. **Keys → Create key**: name `dearus-server`, optional credit limit (e.g. $10/month).
+4. 🔒 Into Render's Environment: `OPENROUTER_API_KEY`. The model is `OPENROUTER_MODEL`
+   (default `google/gemini-2.5-flash-lite`, about a tenth of a cent per chat); change it there anytime.
+5. After the redeploy, the newest "starting:" log line says `cupid=openrouter`.
 
 **6.3 Resend (password-reset emails)**
 1. Sign up at resend.com → **Domains → Add domain** → `axianthq.com`.

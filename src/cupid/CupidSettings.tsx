@@ -19,7 +19,7 @@ function Toggle({ label, desc, on, onChange }: { label: string; desc: string; on
   );
 }
 
-/** Store edition: Cupid comes with Dear Us (our paid Gemini key, behind the Dear Us cloud). */
+/** Store edition: Cupid comes with Dear Us (our AI key via OpenRouter, behind the Dear Us cloud). */
 function CloudCupidSettings({ st, opt }: { st: CupidStatus; opt: (name: string, value: boolean | string) => Promise<unknown> }) {
   if (!st.privacyAck)
     return (
@@ -28,8 +28,8 @@ function CloudCupidSettings({ st, opt }: { st: CupidStatus; opt: (name: string, 
           <ShieldAlert size={18} className="mt-0.5 shrink-0 text-accent" />
           <div>
             <strong className="block">How Cupid thinks</strong>
-            Cupid answers with Google Gemini, through the Dear Us cloud. We use Google's paid API, where Google doesn't use what you send to improve its products, and the
-            Dear Us cloud passes your messages on without keeping them. Cupid only ever sees what you type to him, a shortlist of questions, or your date-idea filters.
+            Cupid answers with an AI model (currently Google Gemini), reached through the Dear Us cloud and OpenRouter. Only AI providers that don't store your messages or
+            train on them are used, and the Dear Us cloud passes your messages on without keeping them. Cupid only ever sees what you type to him, a shortlist of questions, or your date-idea filters.
             Never your journal, letters, time capsules, photos or videos.
           </div>
         </div>

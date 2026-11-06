@@ -34,14 +34,14 @@ Paddle, Part 6.4).
 
 **2.1 Buy the domain**
 1. Create an account at dash.cloudflare.com.
-2. **Domain Registration → Register Domains** → search `axiantlabs.dev` → buy it (card needed).
+2. **Domain Registration → Register Domains** → search `axianthq.com` → buy it (card needed).
    ⭐ If you buy a different name, tell Claude.
 
 **2.2 Support email (free forwarding)**
-1. Cloudflare → **axiantlabs.dev → Email → Email Routing** → **Enable**.
+1. Cloudflare → **axianthq.com → Email → Email Routing** → **Enable**.
 2. **Routing rules → Create address**: `support` → destination: your personal email → Save.
 3. Open the verification email Cloudflare sends to your inbox and confirm.
-   Mail to support@axiantlabs.dev now reaches you. Reply from your own email.
+   Mail to dearus@axianthq.com now reaches you. Reply from your own email.
 
 ---
 
@@ -59,8 +59,8 @@ Paddle, Part 6.4).
    `dear-us` repository.
 2. Production branch: `main` · Framework preset: **None** · Build command: *(empty)* ·
    Build output directory: `site` → **Save and Deploy**.
-3. The project → **Custom domains → Set up a custom domain** → `dearus.axiantlabs.dev` → **Activate**.
-4. Check in a browser: `https://dearus.axiantlabs.dev/privacy.html` opens.
+3. The project → **Custom domains → Set up a custom domain** → `dearus.axianthq.com` → **Activate**.
+4. Check in a browser: `https://dearus.axianthq.com/privacy.html` opens.
 
 ---
 
@@ -78,7 +78,7 @@ Paddle, Part 6.4).
 3. Copy the server's **IPv4 address**.
 
 **5.2 Point the domain at it**
-Cloudflare → axiantlabs.dev → **DNS → Records → Add record**:
+Cloudflare → axianthq.com → **DNS → Records → Add record**:
 Type **A** · Name `dearus-api` · IPv4 = the server's address · Proxy status: **DNS only (grey cloud)** → Save.
 
 **5.3 Install Dear Us Cloud** (from your Windows PC, in PowerShell)
@@ -94,7 +94,7 @@ Type **A** · Name `dearus-api` · IPv4 = the server's address · Proxy status: 
    ```bash
    cd /opt/dearus && bash deploy/setup-vps.sh
    ```
-   It asks for your API domain: type `dearus-api.axiantlabs.dev`. It creates the settings file
+   It asks for your API domain: type `dearus-api.axianthq.com`. It creates the settings file
    `/opt/dearus/.env` with fresh secrets and stops. Leave the window open for Part 6.
 
 ---
@@ -121,11 +121,11 @@ you get it (save: Ctrl+O, Enter; exit: Ctrl+X).
 4. 🔒 Into `.env`: `GEMINI_API_KEY`.
 
 **6.3 Resend (password-reset emails)**
-1. Sign up at resend.com → **Domains → Add domain** → `axiantlabs.dev`.
+1. Sign up at resend.com → **Domains → Add domain** → `axianthq.com`.
 2. Add the DNS records it shows in Cloudflare DNS (Resend can do it for you with "Sign in to
    Cloudflare"). Wait until the domain shows **Verified**.
 3. **API Keys → Create API key** (Sending access).
-4. 🔒 Into `.env`: `RESEND_API_KEY`. (`MAIL_FROM` is already set to `Dear Us <no-reply@axiantlabs.dev>`.)
+4. 🔒 Into `.env`: `RESEND_API_KEY`. (`MAIL_FROM` is already set to `Dear Us <dearus-noreply@axianthq.com>`.)
 
 **6.4 Paddle (payments)** — do it first in the **sandbox** (sandbox-vendors.paddle.com, a
 separate sign-up, fake money), then repeat the same steps in the live account (vendors.paddle.com).
@@ -138,14 +138,14 @@ separate sign-up, fake money), then repeat the same steps in the live account (v
    - "100 Cupid arrows" → 1 price: **$1.99**, one-time.
    - (optional) "300 Cupid arrows" → **$3.99**, one-time.
    Copy each **price ID** (`pri_…`).
-3. **Checkout → Checkout settings → Default payment link**: `https://dearus.axiantlabs.dev/checkout.html`.
-   Also **Website approval**: add `dearus.axiantlabs.dev` if Paddle asks.
+3. **Checkout → Checkout settings → Default payment link**: `https://dearus.axianthq.com/checkout.html`.
+   Also **Website approval**: add `dearus.axianthq.com` if Paddle asks.
 4. **Developer tools → Authentication**:
    - **API key** (server) with write permissions for transactions and customer portal sessions.
    - **Client-side token** (starts `test_` in sandbox, `live_` in live) ⭐ send it to Claude: it's
      public, it goes on the checkout page.
 5. **Developer tools → Notifications → New destination**:
-   URL `https://dearus-api.axiantlabs.dev/v1/billing/paddle/webhook`, type webhook, events:
+   URL `https://dearus-api.axianthq.com/v1/billing/paddle/webhook`, type webhook, events:
    `subscription.created`, `subscription.updated`, `subscription.activated`, `subscription.canceled`,
    `subscription.past_due`, `subscription.paused`, `subscription.resumed`, `transaction.completed`.
    Save, then copy its **secret key**.
@@ -159,7 +159,7 @@ On the server:
 ```bash
 cd /opt/dearus && bash deploy/setup-vps.sh
 ```
-It ends with **"Dear Us cloud is up ♡"**. Check `https://dearus-api.axiantlabs.dev/v1/health` in a
+It ends with **"Dear Us cloud is up ♡"**. Check `https://dearus-api.axianthq.com/v1/health` in a
 browser. If it fails, copy the last lines of `docker compose logs api` to Claude (they contain no keys).
 
 ---
@@ -194,9 +194,9 @@ browser. If it fails, copy the last lines of `docker compose logs api` to Claude
 2. Partner Center → your app → **Start your submission**:
    - **Pricing and availability:** Free · markets: all (or your choice) ·
      **Visibility: Private audience** → create an audience with your and your partner's Microsoft account emails.
-   - **Properties:** Category **Lifestyle** · Privacy policy `https://dearus.axiantlabs.dev/privacy.html` ·
-     Website `https://dearus.axiantlabs.dev/` · Support `support@axiantlabs.dev` ·
-     "accesses personal information": **Yes** · Additional license terms: `https://dearus.axiantlabs.dev/terms.html`.
+   - **Properties:** Category **Lifestyle** · Privacy policy `https://dearus.axianthq.com/privacy.html` ·
+     Website `https://dearus.axianthq.com/` · Support `dearus@axianthq.com` ·
+     "accesses personal information": **Yes** · Additional license terms: `https://dearus.axianthq.com/terms.html`.
    - **Age ratings:** answer as in `docs/STORE_LISTING.md`.
    - **Packages:** upload the `.msix`.
    - **Store listings → English:** paste everything from `docs/STORE_LISTING.md`; upload 8
@@ -237,7 +237,7 @@ Partner Center → your app → **Update** → **Pricing and availability → Vi
 
 | | Cost |
 |---|---|
-| Domain axiantlabs.dev | ~$12/year |
+| Domain axianthq.com | ~$12/year |
 | Hetzner CX22 | ~€5/month |
 | Gemini | cents per day at first |
 | Cloudflare R2, Pages, Email Routing, Resend, GitHub | free |

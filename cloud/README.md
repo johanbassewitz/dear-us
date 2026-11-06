@@ -53,11 +53,11 @@ TEST_DATABASE_URL=postgres://postgres:pw@localhost:5432/postgres cargo test
 as root. It installs Docker and a firewall, creates `.env` with generated secrets (you add the
 service keys), sets up daily database backups and starts everything. The manual steps:
 
-1. A Hetzner CX22 (or similar) with Docker. Point `dearus-api.axiantlabs.dev` (A record) at it.
+1. A Hetzner CX22 (or similar) with Docker. Point `dearus-api.axianthq.com` (A record) at it.
 2. Create the R2 bucket `dearus-relay` and an API token with Object Read & Write on it.
    Add a lifecycle rule: delete objects 30 days after upload (a safety net for the sweeper).
 3. `cp .env.example .env`, fill it in, then `docker compose up -d --build`.
-4. Check `https://dearus-api.axiantlabs.dev/v1/health`.
+4. Check `https://dearus-api.axianthq.com/v1/health`.
 5. Back up Postgres daily (`pg_dump` cron to R2, or the provider's snapshots). The mailbox is
    temporary, but accounts, pairings and purchases are not.
 

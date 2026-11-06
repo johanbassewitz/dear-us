@@ -6,6 +6,7 @@ import { describe, syncApi, syncKeys, useSyncStatus, type SyncConflict } from ".
 import { JoinForm } from "./JoinForm";
 import { ForgotPassword } from "./ForgotPassword";
 import { LinkDeviceButton, LinkForm } from "./LinkDevice";
+import { DeleteAccountButton } from "./DeleteAccount";
 import { useProfile, queryClient } from "../../lib/queries";
 import { useIsStore } from "../../lib/edition";
 import { isDesktop } from "../../lib/api";
@@ -525,9 +526,10 @@ function Dashboard() {
           Stop syncing on this PC
         </Button>
       </div>
-      <p className="text-[11px] text-faint">
-        {store ? s.email : `${s.email} · ${s.projectUrl}`}
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] text-faint">{store ? s.email : `${s.email} · ${s.projectUrl}`}</p>
+        {store && <DeleteAccountButton />}
+      </div>
 
       <ConfirmDialog
         open={askPhrase}
@@ -595,6 +597,8 @@ function InvitePanelButton() {
 }
 
 function CreateOrJoin() {
+  const store = useIsStore();
+  const [linking, setLinking] = useState(false);
   const [phrase, setPhrase] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [join, setJoin] = useState(false);
@@ -611,6 +615,15 @@ function CreateOrJoin() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] text-muted">Signed in ✓ One of you creates the shared space; the other joins it with an invite code.</p>
+      {store && (
+        <p className="rounded-lg bg-paper-2 px-3 py-2 text-[12px] text-ink-soft">
+          Already using Dear Us on another device? Don't create a new space: on that device choose <b>Link my phone or another PC</b>, then{" "}
+          <button onClick={() => setLinking(true)} className="font-bold text-accent hover:underline">
+            enter the link code here →
+          </button>
+        </p>
+      )}
+      {linking && <LinkForm />}
       {join ? (
         <JoinForm needName={false} onJoined={() => toast("You're connected ♡")} />
       ) : (

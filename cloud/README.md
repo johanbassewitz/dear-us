@@ -49,6 +49,10 @@ TEST_DATABASE_URL=postgres://postgres:pw@localhost:5432/postgres cargo test
 
 ## Deploy (Stage 1: one VPS, ~5 EUR/month)
 
+**Quick way:** copy this folder to a fresh Ubuntu 24.04 server and run `bash deploy/setup-vps.sh`
+as root. It installs Docker and a firewall, creates `.env` with generated secrets (you add the
+service keys), sets up daily database backups and starts everything. The manual steps:
+
 1. A Hetzner CX22 (or similar) with Docker. Point `api.dearus.app` (A record) at it.
 2. Create the R2 bucket `dearus-relay` and an API token with Object Read & Write on it.
    Add a lifecycle rule: delete objects 30 days after upload (a safety net for the sweeper).

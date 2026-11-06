@@ -27,6 +27,9 @@ param(
   [string]$OutDir = "dist-msix",
   [switch]$SkipBuild,
   [switch]$AllowUnpinnedFfmpeg,
+  # A build to install on your own PC before the Store has it: test identity (unless
+  # identity.json is filled in), signed with a freshly made self-signed certificate.
+  [switch]$TestBuild,
   [string]$CertPfx,
   [string]$CertPassword
 )
@@ -40,6 +43,13 @@ $identity = Get-Content (Join-Path $here "identity.json") -Raw | ConvertFrom-Jso
 if (-not $IdentityName) { $IdentityName = $identity.identityName }
 if (-not $Publisher) { $Publisher = $identity.publisher }
 if (-not $PublisherDisplayName) { $PublisherDisplayName = $identity.publisherDisplayName }
+if ($TestBuild -and ($IdentityName -match 'XXXX' -or $Publisher -match 'XXXX')) {
+  $IdentityName = "DearUs.TestBuild"
+  $Publisher = "CN=DearUsTestBuild"
+  Write-Warning "Test build: using a test identity. Fill in packaging/msix/identity.json for Store uploads."
+}
+if ($TestBuild) { $AllowUnpinnedFfmpeg = $true }
+if (-not $CloudUrl) { $CloudUrl = "https://api.dearus.app" }
 if ($IdentityName -match 'XXXX' -or $Publisher -match 'XXXX') {
   throw "Fill in packaging/msix/identity.json (or pass -IdentityName/-Publisher) with the values from Partner Center."
 }
@@ -151,6 +161,15 @@ $msix = Join-Path $OutDir "DearUs_$version`_x64.msix"
 & $makeappx.FullName pack /d $layout /p $msix /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed" }
 
+if ($TestBuild -and -not $CertPfx) {
+  # self-signed certificate whose subject matches the package publisher
+  $cert = New-SelfSignedCertificate -Type Custom -Subject $Publisher -KeyUsage DigitalSignature -FriendlyName "Dear Us test build" `
+    -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+  $CertPassword = [guid]::NewGuid().ToString()
+  $CertPfx = Join-Path $OutDir "DearUs-test.pfx"
+  Export-PfxCertificate -Cert $cert -FilePath $CertPfx -Password (ConvertTo-SecureString $CertPassword -AsPlainText -Force) | Out-Null
+  Export-Certificate -Cert $cert -FilePath (Join-Path $OutDir "DearUs-test-certificate.cer") | Out-Null
+}
 if ($CertPfx) {
   $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
@@ -158,6 +177,11 @@ if ($CertPfx) {
   if ($LASTEXITCODE -ne 0) { throw "signing failed" }
 }
 
+if ($CertPfx -and $TestBuild) { Remove-Item $CertPfx -Force }  # never ship the private key
 Write-Host ""
 Write-Host "Done: $msix"
-Write-Host "Upload it in Partner Center → your app → Packages (the Store signs it)."
+if ($TestBuild) {
+  Write-Host "Test build: install DearUs-test-certificate.cer into 'Local Machine > Trusted People' once, then open the .msix."
+} else {
+  Write-Host "Upload it in Partner Center → your app → Packages (the Store signs it)."
+}

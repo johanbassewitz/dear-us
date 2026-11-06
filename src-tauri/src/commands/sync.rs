@@ -554,9 +554,7 @@ pub async fn sync_link_device(app: AppHandle, input: LinkInput) -> AppResult<()>
             let state = a.state::<AppState>();
             {
                 let conn = state.db.lock().unwrap();
-                if crate::db::repo::profile::get(&conn)?.space.is_some() {
-                    return Err(AppError::invalid("This device already has its own Dear Us archive. Linking is for a fresh install."));
-                }
+                crate::sync::bootstrap::ensure_fresh(&conn)?;
             }
             let url = backend::normalize_url("")?;
             let session = backend::sign_in(&url, "", &email, &input.password)?;
@@ -571,6 +569,7 @@ pub async fn sync_link_device(app: AppHandle, input: LinkInput) -> AppResult<()>
             service::store_key(&dev, &SpaceKey::from_b64(&p.k)?)?;
             {
                 let conn = state.db.lock().unwrap();
+                crate::sync::bootstrap::clear_empty_profile(&conn)?;
                 service::save_config(&conn, &Config { url, anon: String::new(), space: Some(space), email: Some(email) })?;
                 crate::sync::bootstrap::mark_pending(&conn, &p.f)?;
             }
@@ -588,5 +587,34 @@ pub async fn sync_link_device(app: AppHandle, input: LinkInput) -> AppResult<()>
     {
         let _ = (app, input, email);
         Err(AppError::invalid("Linking devices is part of Dear Us from the Microsoft Store."))
+    }
+}
+
+/// Store edition: deletes this person's Dear Us account. Memories on this PC stay exactly as
+/// they are (and keep working offline); the partner keeps the shared space and its plan.
+#[tauri::command]
+pub async fn sync_delete_account(app: AppHandle, password: String) -> AppResult<()> {
+    #[cfg(feature = "store")]
+    {
+        let state = app.state::<AppState>();
+        let dev = device(&state)?;
+        let token = crate::secrets::get(&service::secret_name(&dev, "refresh"))?.ok_or_else(|| AppError::invalid("Sign in first (Settings → Partner sync), then delete the account."))?;
+        let url = backend::normalize_url("")?;
+        tauri::async_runtime::spawn_blocking(move || crate::sync::cloud::delete_account(&url, &token, &password))
+            .await
+            .map_err(|e| AppError::invalid(e.to_string()))??;
+        {
+            let conn = state.db.lock().unwrap();
+            service::clear_config(&conn, &dev)?;
+            conn.execute("DELETE FROM local_meta WHERE key LIKE 'plan.%' OR key LIKE 'billing.%' OR key LIKE 'link.%'", [])?;
+        }
+        app.state::<SyncService>().reset();
+        service::refresh_status(&app, None);
+        return Ok(());
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = (app, password);
+        Err(AppError::invalid("Accounts live in your own Supabase project in this edition."))
     }
 }

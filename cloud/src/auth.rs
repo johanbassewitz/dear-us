@@ -314,6 +314,54 @@ pub async fn reset(State(state): State<Arc<AppState>>, Json(b): Json<ResetIn>) -
     Ok(Json(issue(&state, user).await?))
 }
 
+// ------------------------------------------------------------- account deletion
+
+#[derive(Deserialize)]
+pub struct DeleteIn {
+    pub password: String,
+}
+
+/// Deletes this person's account for good (asks for the password again). Spaces they share
+/// with a partner are handed over to the partner, so the partner keeps syncing and keeps the
+/// plan; spaces where they're alone are deleted with everything waiting in them.
+/// Memories on the PCs are not touched: they live there, not here.
+pub async fn delete_account(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, Json(b): Json<DeleteIn>) -> ApiResult<Json<bool>> {
+    let hash: Option<String> = sqlx::query_scalar("select password_hash from users where id = $1").bind(user).fetch_optional(&state.db).await?;
+    let hash = hash.ok_or_else(ApiError::unauthorized)?;
+    if !verify_password(b.password, hash).await {
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "wrong_password", "That password isn't right."));
+    }
+    let spaces: Vec<Uuid> = sqlx::query_scalar("select space_id from members where user_id = $1").bind(user).fetch_all(&state.db).await?;
+    let mut alone: Vec<Uuid> = Vec::new();
+    let mut tx = state.db.begin().await?;
+    for space in spaces {
+        let partner: Option<Uuid> = sqlx::query_scalar("select user_id from members where space_id = $1 and user_id <> $2 limit 1").bind(space).bind(user).fetch_optional(&mut *tx).await?;
+        match partner {
+            Some(p) => {
+                sqlx::query("update spaces set created_by = $2 where id = $1 and created_by = $3").bind(space).bind(p).bind(user).execute(&mut *tx).await?;
+                // their subscription rows and purchases move with the space, so Premium the
+                // couple paid for stays until it runs out (cancel it in the Microsoft account)
+                sqlx::query("update subscriptions set user_id = $2 where space_id = $1 and user_id = $3").bind(space).bind(p).bind(user).execute(&mut *tx).await?;
+                sqlx::query("update purchases set user_id = $2 where space_id = $1 and user_id = $3").bind(space).bind(p).bind(user).execute(&mut *tx).await?;
+                // invites the leaving person made would otherwise vanish with them: fine
+            }
+            None => alone.push(space),
+        }
+    }
+    tx.commit().await?;
+    // spaces with nobody left: files in storage first, then the rows (cascade)
+    for space in &alone {
+        let hashes: Vec<String> = sqlx::query_scalar("select hash from blobs where space_id = $1").bind(space).fetch_all(&state.db).await?;
+        for h in hashes {
+            crate::relay::forget_blob(&state, *space, &h).await?;
+        }
+        sqlx::query("delete from spaces where id = $1").bind(space).execute(&state.db).await?;
+    }
+    // removes sessions, memberships, devices (and with them anything addressed to them)
+    sqlx::query("delete from users where id = $1").bind(user).execute(&state.db).await?;
+    Ok(Json(true))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

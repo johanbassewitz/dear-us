@@ -184,6 +184,7 @@ pub fn run() {
             commands::sync::sync_create_device_link,
             commands::sync::sync_read_device_link,
             commands::sync::sync_link_device,
+            commands::sync::sync_delete_account,
             commands::backup::backup_status,
             commands::backup::backup_set_folder,
             commands::backup::backup_set_auto,

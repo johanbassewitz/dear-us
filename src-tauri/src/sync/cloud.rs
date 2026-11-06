@@ -14,8 +14,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 pub const CLOUD_URL: &str = match option_env!("DEARUS_CLOUD_URL") {
-    Some(u) => u,
-    None => "https://api.dearus.app",
+    // an empty variable (e.g. an unset CI setting) means "use the default"
+    Some(u) if !u.is_empty() => u,
+    _ => "https://api.dearus.app",
 };
 
 #[derive(Debug, Clone)]
@@ -113,6 +114,20 @@ pub fn forgot_password(url: &str, email: &str) -> AppResult<()> {
 /// New password with the emailed code. Signs this device in (other sessions are signed out).
 pub fn reset_password(url: &str, email: &str, code: &str, password: &str) -> AppResult<Session> {
     token_call(url, "/v1/auth/reset", json!({ "email": email, "code": code, "password": password }), http_err)
+}
+
+/// Deletes the account for good (the password is asked again). Memories on the PCs stay.
+pub fn delete_account(url: &str, refresh_token: &str, password: &str) -> AppResult<()> {
+    let s = refresh(url, refresh_token)?;
+    agent()
+        .request("DELETE", &format!("{url}/v1/account"))
+        .set("Authorization", &format!("Bearer {}", s.access_token))
+        .send_json(json!({ "password": password }))
+        .map_err(|e| match e {
+            ureq::Error::Status(401, _) => AppError::invalid("That password isn't right."),
+            other => http_err(other),
+        })?;
+    Ok(())
 }
 
 pub fn redeem_invite(url: &str, _anon: &str, session: &Session, secret: &str) -> AppResult<String> {

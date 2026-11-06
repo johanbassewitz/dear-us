@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy — Dear Us</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><a class="brand" href="./">dear us.</a><nav><a href="support.html">Help</a><a href="privacy.html">Privacy</a></nav></header>
+<main>
+<h1>Privacy policy</h1>
+<p class="muted">Last updated: {{DATE}} · Applies to Dear Us from the Microsoft Store and the Dear Us cloud service.</p>
+
+<div class="card">
+<b>In short:</b> your memories live on your own devices and are encrypted end to end with a key only your devices have. We can't read them. We keep only what's needed to run your account, deliver encrypted updates between your devices, and handle your plan. No ads, no tracking, no selling of data.
+</div>
+
+<h2>Who we are</h2>
+<p>Dear Us is made by {{OPERATOR_NAME}}, {{OPERATOR_COUNTRY}}. Contact: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>
+
+<h2>What stays on your devices</h2>
+<p>Your journal, photos, videos, letters, time capsules, plans, answers and Cupid chats are stored on your own PCs. Backups you turn on go to a folder you choose, for example your own OneDrive, Google Drive, iCloud Drive or Dropbox. Backups made by the Microsoft Store edition are encrypted with your space key, so those companies can't read them either.</p>
+
+<h2>What our cloud stores, and for how long</h2>
+<table>
+<tr><th>Data</th><th>Why</th><th>How long</th></tr>
+<tr><td>Your email address and a hashed password (Argon2id; the password itself is never stored)</td><td>Your account</td><td>Until you delete the account</td></tr>
+<tr><td>Which accounts share a space, your devices' names, and while you use direct transfers, each device's address on your home network</td><td>Delivering updates to the right devices</td><td>Until you remove the device or delete the account</td></tr>
+<tr><td>Encrypted updates and encrypted photo/video pieces, with their sizes and times</td><td>Carrying them to your partner's and your other devices. They're encrypted on your device; we can't read them.</td><td>Deleted as soon as every device has them, and at most 30 days</td></tr>
+<tr><td>Your plan: trial end date, Premium end date, monthly counters (cloud photo space used, Cupid arrows), and Microsoft Store purchase/transaction IDs</td><td>Providing the plan you're on</td><td>While the space exists, and purchase records as long as the law requires</td></tr>
+<tr><td>Password-reset codes (stored hashed)</td><td>Letting you choose a new password</td><td>30 minutes</td></tr>
+<tr><td>Short technical logs (for example errors and times, possibly IP addresses)</td><td>Keeping the service running and secure</td><td>A few weeks at most</td></tr>
+</table>
+
+<h2>Cupid</h2>
+<p>When you use Cupid, only what's needed for that request is sent: the messages you type to Cupid (with a few earlier messages of that chat), a shortlist of questions, or your date-idea filters (and open bucket-list titles only if you allow it in Settings). Never your journal, letters, time capsules, photos or videos. Requests go through our server to Google's Gemini API (paid tier, where Google doesn't use them to improve its products) and are not stored by us. Your Cupid chat history stays on your PC.</p>
+
+<h2>Who helps us run the service</h2>
+<table>
+<tr><th>Provider</th><th>What for</th></tr>
+<tr><td>{{HOSTING_PROVIDER}}</td><td>The server and database</td></tr>
+<tr><td>Cloudflare (R2)</td><td>Temporary storage of encrypted photo/video pieces in transit</td></tr>
+<tr><td>Google (Gemini API)</td><td>Cupid's answers</td></tr>
+<tr><td>Resend</td><td>Sending password-reset emails</td></tr>
+<tr><td>Microsoft</td><td>The Microsoft Store and in-app purchases (Microsoft handles payment details; we never see your card)</td></tr>
+</table>
+<p>Some of these providers may process data outside your country. We only share what each one needs for its job.</p>
+
+<h2>Your choices and rights</h2>
+<ul>
+<li><b>Delete your account</b> anytime in the app: Settings → Partner sync → Delete my account. Your memories stay on your PC; your partner keeps your shared space.</li>
+<li>Ask us for a copy of the account data we hold, or to correct it: write to <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</li>
+<li>Cancel Premium in your Microsoft account (account.microsoft.com → Services &amp; subscriptions).</li>
+</ul>
+
+<h2>Security</h2>
+<p>Everything between your devices is sealed with XChaCha20-Poly1305 using your space key, which is created on your device and shared with your partner only through the invite code. Connections to our server use HTTPS. Keep your 24-word recovery phrase safe: we can't recover your space key for you.</p>
+
+<h2>Children</h2>
+<p>Dear Us is not meant for children under 16.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes in a way that matters, we'll say so in the app before it applies.</p>
+</main>
+<footer>© Dear Us · <a href="./">Home</a> · <a href="support.html">Support</a></footer>
+</body>
+</html>

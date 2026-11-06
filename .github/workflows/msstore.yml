@@ -7,6 +7,11 @@ name: Microsoft Store package
 
 on:
   workflow_dispatch:
+    inputs:
+      test_build:
+        description: "Test build to install on your own PC (self-signed). Untick for the Store upload."
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -47,9 +52,12 @@ jobs:
           -Publisher "${{ vars.MS_PUBLISHER }}"
           -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME }}"
           -CloudUrl "${{ vars.DEARUS_CLOUD_URL }}"
+          ${{ inputs.test_build && '-TestBuild' || '' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DearUs-msix
-          path: dist-msix/*.msix
+          name: ${{ inputs.test_build && 'DearUs-test-build' || 'DearUs-msix-for-store' }}
+          path: |
+            dist-msix/*.msix
+            dist-msix/*.cer
           if-no-files-found: error

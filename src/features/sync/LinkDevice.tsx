@@ -93,7 +93,8 @@ export function LinkForm({ onLinked }: { onLinked?: () => void }) {
     setError(null);
     try {
       await syncApi.linkDevice(code, password);
-      queryClient.invalidateQueries({ queryKey: ["sync"] });
+      // profile and sync status both change: the app switches to "Bringing your memories over…"
+      await queryClient.invalidateQueries();
       onLinked?.();
     } catch (e) {
       setError(clean(e));

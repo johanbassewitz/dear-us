@@ -681,3 +681,18 @@ fn cloud_link_a_second_device_of_mine_through_the_real_server() {
     assert_eq!(b.get(&id).summary.title, "Edited on the laptop");
     assert_eq!(ra.devices().unwrap().len(), 3);
 }
+
+#[test]
+fn linking_is_only_for_a_device_with_nothing_written_yet() {
+    // onboarding made a name and a space, nothing else: fine, and replaced
+    let fresh = Peer::new("Jo", "Sam");
+    super::bootstrap::ensure_fresh(&fresh.db.lock().unwrap()).unwrap();
+    super::bootstrap::clear_empty_profile(&fresh.db.lock().unwrap()).unwrap();
+    let users: i64 = fresh.db.lock().unwrap().query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+    assert_eq!(users, 0);
+    // a device with a memory: refused, nothing touched
+    let used = Peer::new("Jo", "Sam");
+    used.entry("Mine", "x", vec![]);
+    assert!(super::bootstrap::clear_empty_profile(&used.db.lock().unwrap()).is_err());
+    assert_eq!(used.titles(), vec!["Mine"]);
+}

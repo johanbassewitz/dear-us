@@ -358,3 +358,34 @@ async fn device_links_only_work_for_your_own_account_and_snapshots_are_free() {
     // the free tier lists a capsule limit; trial/premium don't
     assert_eq!(a.get(&format!("/v1/spaces/{space}/plan")).await.1["capsule_limit"], 3);
 }
+
+#[tokio::test]
+async fn deleting_an_account_hands_the_space_to_the_partner() {
+    let Some(s) = start().await else { return };
+    let (a, b, space, da, db) = couple(&s).await;
+    sqlx::query("update spaces set premium_until = now() + interval '20 days' where id = $1").bind(space).execute(&s.db).await.unwrap();
+    // an envelope still waiting for A's device
+    let env = Uuid::new_v4();
+    b.post(&format!("/v1/spaces/{space}/envelopes"), json!({"id": env, "sender_device": db, "recipients": [da], "ciphertext": "x"})).await;
+    assert_eq!(a.call(reqwest::Method::DELETE, "/v1/account", Some(json!({"password": "wrong"}))).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(a.call(reqwest::Method::DELETE, "/v1/account", Some(json!({"password": "correct horse"}))).await.0, StatusCode::OK);
+    let gone: i64 = sqlx::query_scalar("select count(*) from users where id = $1").bind(a.user).fetch_one(&s.db).await.unwrap();
+    assert_eq!(gone, 0);
+    // the partner keeps the space, the plan and syncing
+    let (st, p) = b.get(&format!("/v1/spaces/{space}/plan")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(p["tier"], "premium");
+    let (_, devs) = b.get(&format!("/v1/spaces/{space}/devices")).await;
+    assert_eq!(devs.as_array().unwrap().len(), 1, "A's device is gone");
+    assert_eq!(b.get(&format!("/v1/spaces/{space}/envelopes/{env}/delivered")).await.1, json!(true), "nothing waits for a deleted device");
+    // the old session no longer works
+    assert_eq!(a.get(&format!("/v1/spaces/{space}/plan")).await.0, StatusCode::FORBIDDEN);
+
+    // alone in a space: the space goes too
+    let solo = s.signup().await;
+    let sp = Uuid::new_v4();
+    solo.post("/v1/spaces", json!({"id": sp})).await;
+    assert_eq!(solo.call(reqwest::Method::DELETE, "/v1/account", Some(json!({"password": "correct horse"}))).await.0, StatusCode::OK);
+    let left: i64 = sqlx::query_scalar("select count(*) from spaces where id = $1").bind(sp).fetch_one(&s.db).await.unwrap();
+    assert_eq!(left, 0);
+}

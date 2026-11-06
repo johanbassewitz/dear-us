@@ -187,6 +187,29 @@ fn max_field_clock(conn: &Connection) -> AppResult<Option<String>> {
     Ok(max)
 }
 
+// ------------------------------------------------------------------ fresh devices
+
+/// Linking brings over a whole archive, so it's only for a device with nothing written yet.
+/// (A name and space set up during onboarding don't count: they're replaced by the real ones.)
+pub fn ensure_fresh(conn: &Connection) -> AppResult<()> {
+    let content: i64 = conn.query_row("SELECT COUNT(*) FROM oplog WHERE entity NOT IN ('user', 'space', 'daily_question')", [], |r| r.get(0))?;
+    let media: i64 = conn.query_row("SELECT COUNT(*) FROM media", [], |r| r.get(0))?;
+    if content > 0 || media > 0 {
+        return Err(AppError::invalid(
+            "This PC already has its own memories, so linking could mix two archives. Link a fresh install instead, or bring this PC's memories over with a backup.",
+        ));
+    }
+    Ok(())
+}
+
+/// Removes the placeholder profile of a fresh install, so the linked person's profile (from
+/// the snapshot) is the only one.
+pub fn clear_empty_profile(conn: &Connection) -> AppResult<()> {
+    ensure_fresh(conn)?;
+    conn.execute_batch("DELETE FROM oplog; DELETE FROM daily_questions; DELETE FROM users; DELETE FROM space;")?;
+    Ok(())
+}
+
 // ------------------------------------------------------------------ bookkeeping
 
 /// This device is new and waiting for its snapshot (set when linking).

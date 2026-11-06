@@ -64,45 +64,29 @@ Paddle, Part 6.4).
 
 ---
 
-## Part 5 — The server (~€5/month, ~30 min)
+## Part 5 — The server on Render (~$13/month, ~15 min, no terminal)
 
-**5.1 Rent it**
-1. Sign up at hetzner.com/cloud (they may ask for ID verification; can take a few hours).
-2. Cloud console → **New project** "Dear Us" → **Add server**:
-   - Location: Falkenstein, Nuremberg or Helsinki
-   - Image: **Ubuntu 24.04**
-   - Type: **CX22** (Shared vCPU, x86)
-   - Networking: keep **Public IPv4** on
-   - SSH key: optional; without one, Hetzner emails you the root password
-   - Name: `dearus-1` → **Create & Buy now**
-3. Copy the server's **IPv4 address**.
+1. Sign up at **render.com** with **GitHub**, then **Account → Billing** → add your card.
+2. **New + → Blueprint** → connect the `dear-us` repository → Render reads `render.yaml` and shows
+   a database (`dearus-db`) and a web service (`dearus-api`), both in Frankfurt.
+3. It asks for the values marked secret (R2, Gemini, Resend, Paddle). **You can leave them empty
+   for now** and add them in Part 6 → **Apply**. The first build takes ~10 minutes.
+4. When it's live: open `https://dearus-api.onrender.com/v1/health` (Render shows the exact
+   address on the service page) → you should see `{"service":"dearus-cloud","version":1}`.
+5. Your own address: service **dearus-api → Settings → Custom Domains → Add** →
+   `dearus-api.axianthq.com`. Render shows a target like `dearus-api.onrender.com`.
+   In Cloudflare → axianthq.com → **DNS → Add record**: type **CNAME**, name `dearus-api`,
+   target = that address, **Proxy status: DNS only (grey cloud)** → Save. Back in Render → **Verify**.
+   After a few minutes `https://dearus-api.axianthq.com/v1/health` works too.
 
-**5.2 Point the domain at it**
-Cloudflare → axianthq.com → **DNS → Records → Add record**:
-Type **A** · Name `dearus-api` · IPv4 = the server's address · Proxy status: **DNS only (grey cloud)** → Save.
-
-**5.3 Install Dear Us Cloud** (from your Windows PC, in PowerShell)
-1. GitHub → the repository → **Code → Download ZIP** → extract it (e.g. to `Downloads\dear-us-main`).
-2. Copy the server folder up (replace `IP`):
-   ```powershell
-   scp -r $HOME\Downloads\dear-us-main\cloud root@IP:/opt/dearus
-   ```
-3. Log in and run the setup:
-   ```powershell
-   ssh root@IP
-   ```
-   ```bash
-   cd /opt/dearus && bash deploy/setup-vps.sh
-   ```
-   It asks for your API domain: type `dearus-api.axianthq.com`. It creates the settings file
-   `/opt/dearus/.env` with fresh secrets and stops. Leave the window open for Part 6.
+(VPS instead of Render? `cloud/deploy/setup-vps.sh` still works on any Ubuntu server.)
 
 ---
 
 ## Part 6 — Service keys (free tiers + Gemini pay-as-you-go, ~45 min)
 
-Open the settings file on the server with `nano /opt/dearus/.env` and fill in each 🔒 value as
-you get it (save: Ctrl+O, Enter; exit: Ctrl+X).
+Put each 🔒 value in Render → service **dearus-api → Environment** (find the key, paste the
+value) → **Save changes**. Render restarts the server with them.
 
 **6.1 Cloudflare R2 (photo storage in transit)**
 1. Cloudflare → **R2 Object Storage** → add a payment method if asked (free up to 10 GB).
@@ -110,7 +94,7 @@ you get it (save: Ctrl+O, Enter; exit: Ctrl+X).
 3. The bucket → **Settings → Object lifecycle rules → Add rule** → delete objects **30 days** after upload → Save.
 4. R2 → **Manage API tokens → Create API token** → permission **Object Read & Write**, only bucket
    `dearus-relay` → Create.
-5. 🔒 Into `.env`: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT` =
+5. 🔒 Into Render's Environment: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT` =
    `https://<your account id>.r2.cloudflarestorage.com` (shown on the same page).
 
 **6.2 Google Gemini (Cupid)**
@@ -118,14 +102,14 @@ you get it (save: Ctrl+O, Enter; exit: Ctrl+X).
 2. Turn on billing for that project (AI Studio shows **Set up billing**; add your card). This
    makes it the paid tier, where Google doesn't use the messages to improve its products.
 3. Google Cloud console → **Billing → Budgets & alerts** → budget $20/month with email alerts.
-4. 🔒 Into `.env`: `GEMINI_API_KEY`.
+4. 🔒 Into Render's Environment: `GEMINI_API_KEY`.
 
 **6.3 Resend (password-reset emails)**
 1. Sign up at resend.com → **Domains → Add domain** → `axianthq.com`.
 2. Add the DNS records it shows in Cloudflare DNS (Resend can do it for you with "Sign in to
    Cloudflare"). Wait until the domain shows **Verified**.
 3. **API Keys → Create API key** (Sending access).
-4. 🔒 Into `.env`: `RESEND_API_KEY`. (`MAIL_FROM` is already set to `Dear Us <dearus-noreply@axianthq.com>`.)
+4. 🔒 Into Render's Environment: `RESEND_API_KEY`. (`MAIL_FROM` is already set to `Dear Us <dearus-noreply@axianthq.com>`.)
 
 **6.4 Paddle (payments)** — do it first in the **sandbox** (sandbox-vendors.paddle.com, a
 separate sign-up, fake money), then repeat the same steps in the live account (vendors.paddle.com).
@@ -149,18 +133,15 @@ separate sign-up, fake money), then repeat the same steps in the live account (v
    `subscription.created`, `subscription.updated`, `subscription.activated`, `subscription.canceled`,
    `subscription.past_due`, `subscription.paused`, `subscription.resumed`, `transaction.completed`.
    Save, then copy its **secret key**.
-6. 🔒 Into `.env`: `PADDLE_ENV=sandbox` (later `production`), `PADDLE_API_KEY`,
+6. 🔒 Into Render's Environment: `PADDLE_ENV=sandbox` (later `production`), `PADDLE_API_KEY`,
    `PADDLE_WEBHOOK_SECRET`, `PADDLE_PRICE_PREMIUM_MONTHLY`, `PADDLE_PRICE_PREMIUM_YEARLY`,
    `PADDLE_PRICE_ARROWS_100`, `PADDLE_PRICE_ARROWS_300` (the price IDs aren't secret, but they
    live in the same file).
 
-**6.5 Start the server**
-On the server:
-```bash
-cd /opt/dearus && bash deploy/setup-vps.sh
-```
-It ends with **"Dear Us cloud is up ♡"**. Check `https://dearus-api.axianthq.com/v1/health` in a
-browser. If it fails, copy the last lines of `docker compose logs api` to Claude (they contain no keys).
+**6.5 Check the server**
+After saving the keys, Render restarts the service (Events tab). Open
+`https://dearus-api.axianthq.com/v1/health`. If something's wrong, service → **Logs** → copy the last
+lines to Claude (they contain no keys).
 
 ---
 
@@ -215,8 +196,8 @@ With the server on `PADDLE_ENV=sandbox` and the sandbox client token on the chec
    - [ ] back in Dear Us, **Premium shows on both PCs** within seconds
    - [ ] **Manage subscription** opens Paddle's page → cancel → at the end of the period it's back to free
    - [ ] **100 Cupid arrows** → +100; buy again → +100 again
-3. ⭐ Send Claude the results. Then switch to **live**: in `.env` put the live API key, webhook
-   secret, price IDs and `PADDLE_ENV=production`, run `bash deploy/setup-vps.sh` again, and send
+3. ⭐ Send Claude the results. Then switch to **live**: in Render's Environment put the live API key,
+   webhook secret, price IDs and `PADDLE_ENV=production` → Save, and send
    Claude the live client token (for the checkout page). Do one real $3.99 purchase and refund it
    from the Paddle dashboard.
 
@@ -228,8 +209,10 @@ Partner Center → your app → **Update** → **Pricing and availability → Vi
 
 ## After launch (10 minutes a week)
 
-- On the server: `bash /opt/dearus/deploy/ai-reports.sh` → read Cupid reports → `… ai-reports.sh done`.
-- Database backups are automatic (`/var/backups/dearus`, 14 days). Copy one off the server monthly.
+- Cupid reports: Render → **dearus-db → Connect** (or the Shell tab of dearus-api) and run
+  `select created_at, reason, details, answer from ai_reports where handled_at is null;`
+  (or ask Claude to add a small admin page).
+- Database backups: Render backs up paid databases automatically (dearus-db → Recovery).
 - Paddle → **Payouts**: Paddle pays out monthly (once over its minimum) to your bank or Payoneer.
 - Google Cloud billing alert emails: check Gemini costs stay small.
 
@@ -238,7 +221,7 @@ Partner Center → your app → **Update** → **Pricing and availability → Vi
 | | Cost |
 |---|---|
 | Domain axianthq.com | ~$12/year |
-| Hetzner CX22 | ~€5/month |
+| Render: web service Starter + Postgres Basic | ~$13/month |
 | Gemini | cents per day at first |
 | Cloudflare R2, Pages, Email Routing, Resend, GitHub | free |
 | Microsoft Store | free (the app is free; payments don't go through Microsoft) |

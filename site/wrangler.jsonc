@@ -1,0 +1,13 @@
+// Cloudflare Workers config for the Dear Us website (dearus.axianthq.com).
+// In the Cloudflare project: Root directory = "site", Deploy command = "npx wrangler deploy".
+{
+  "name": "dearus",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    // the HTML pages in this folder, served as they are
+    "directory": ".",
+    // /privacy serves privacy.html, /checkout serves checkout.html, etc.
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  }
+}

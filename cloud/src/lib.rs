@@ -7,6 +7,7 @@ pub mod billing;
 pub mod config;
 pub mod cupid;
 pub mod error;
+pub mod mail;
 pub mod plan;
 pub mod relay;
 pub mod spaces;
@@ -53,6 +54,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/auth/signin", post(auth::signin))
         .route("/v1/auth/refresh", post(auth::refresh))
         .route("/v1/auth/signout", post(auth::signout))
+        .route("/v1/auth/forgot", post(auth::forgot))
+        .route("/v1/auth/reset", post(auth::reset))
         .route("/v1/spaces", post(s::create))
         .route("/v1/invites/redeem", post(s::redeem_invite))
         .route("/v1/spaces/{space}/devices", get(s::devices).post(s::register_device))
@@ -92,5 +95,6 @@ pub async fn sweep(state: &AppState) -> Result<(), error::ApiError> {
     }
     sqlx::query("delete from invites where expires_at < now() - interval '7 days'").execute(&state.db).await?;
     sqlx::query("delete from refresh_tokens where expires_at < now()").execute(&state.db).await?;
+    sqlx::query("delete from password_resets where expires_at < now()").execute(&state.db).await?;
     Ok(())
 }

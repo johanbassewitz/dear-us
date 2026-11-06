@@ -11,6 +11,7 @@ use uuid::Uuid;
 struct Server {
     base: String,
     db: sqlx::PgPool,
+    mail: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
     _dir: std::path::PathBuf,
 }
 
@@ -22,10 +23,12 @@ async fn start() -> Option<Server> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let dir = std::env::temp_dir().join(format!("dearus-cloud-test-{}", Uuid::new_v4()));
-    let state = build_state(Config::for_tests(&url, &base, dir.to_str().unwrap())).await.expect("state");
+    let cfg = Config::for_tests(&url, &base, dir.to_str().unwrap());
+    let dear_us_cloud::config::Mail::Memory(mail) = cfg.mail.clone() else { unreachable!() };
+    let state = build_state(cfg).await.expect("state");
     let db = state.db.clone();
     tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
-    Some(Server { base, db, _dir: dir })
+    Some(Server { base, db, mail, _dir: dir })
 }
 
 struct Client {
@@ -265,4 +268,93 @@ async fn cupid_arrows_are_counted_and_refunded_on_failure() {
     let pick = json!({"kind": "daily_pick", "system": "s", "turns": [{"role": "user", "text": "pick"}], "json": true});
     assert_eq!(a.post(&format!("/v1/spaces/{space}/cupid"), pick.clone()).await.0, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(a.post(&format!("/v1/spaces/{space}/cupid"), pick).await.0, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn password_reset_by_emailed_code() {
+    let Some(s) = start().await else { return };
+    let a = s.signup().await;
+    let http = reqwest::Client::new();
+    let email: String = sqlx::query_scalar("select email from users where id = $1").bind(a.user).fetch_one(&s.db).await.unwrap();
+    let post = |path: &str, body: Value| http.post(format!("{}{path}", s.base)).json(&body).send();
+
+    // unknown emails get the same answer and no email
+    assert_eq!(post("/v1/auth/forgot", json!({"email": "nobody@nowhere.test"})).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(post("/v1/auth/forgot", json!({"email": email})).await.unwrap().status(), StatusCode::OK);
+    let body = s.mail.lock().unwrap().iter().rev().find(|(to, _)| *to == email).map(|(_, b)| b.clone()).expect("email sent");
+    assert!(!s.mail.lock().unwrap().iter().any(|(to, _)| to == "nobody@nowhere.test"));
+    let code: String = body.split_whitespace().find(|w| w.len() == 6 && w.chars().all(|c| c.is_ascii_digit())).unwrap().into();
+
+    let wrong = if code == "000000" { "111111" } else { "000000" };
+    let r = post("/v1/auth/reset", json!({"email": email, "code": wrong, "password": "brand new pw"})).await.unwrap();
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    let r = post("/v1/auth/reset", json!({"email": email, "code": code, "password": "brand new pw"})).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let t: Value = r.json().await.unwrap();
+    assert!(t["access_token"].as_str().is_some());
+    // old sessions are signed out, the code can't be reused, the new password works
+    assert_eq!(post("/v1/auth/refresh", json!({"refresh_token": a.refresh})).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(post("/v1/auth/reset", json!({"email": email, "code": code, "password": "again again"})).await.unwrap().status(), StatusCode::BAD_REQUEST);
+    assert_eq!(post("/v1/auth/signin", json!({"email": email, "password": "brand new pw"})).await.unwrap().status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn too_many_wrong_codes_burn_the_code() {
+    let Some(s) = start().await else { return };
+    let a = s.signup().await;
+    let http = reqwest::Client::new();
+    let email: String = sqlx::query_scalar("select email from users where id = $1").bind(a.user).fetch_one(&s.db).await.unwrap();
+    http.post(format!("{}/v1/auth/forgot", s.base)).json(&json!({"email": email})).send().await.unwrap();
+    let body = s.mail.lock().unwrap().iter().rev().find(|(to, _)| *to == email).map(|(_, b)| b.clone()).unwrap();
+    let code: String = body.split_whitespace().find(|w| w.len() == 6 && w.chars().all(|c| c.is_ascii_digit())).unwrap().into();
+    let wrong = if code == "000000" { "111111" } else { "000000" };
+    for _ in 0..5 {
+        http.post(format!("{}/v1/auth/reset", s.base)).json(&json!({"email": email, "code": wrong, "password": "brand new pw"})).send().await.unwrap();
+    }
+    let r = http.post(format!("{}/v1/auth/reset", s.base)).json(&json!({"email": email, "code": code, "password": "brand new pw"})).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST, "guessing is capped");
+}
+
+#[tokio::test]
+async fn device_links_only_work_for_your_own_account_and_snapshots_are_free() {
+    let Some(s) = start().await else { return };
+    let (a, b, space, da, _db) = couple(&s).await;
+    sqlx::query("update spaces set trial_ends_at = now() - interval '1 day' where id = $1").bind(space).execute(&s.db).await.unwrap();
+    let secret = format!("link-{}", Uuid::new_v4());
+    assert_eq!(a.post(&format!("/v1/spaces/{space}/invites"), json!({"secret_hash": sha(&secret), "kind": "device"})).await.0, StatusCode::OK);
+    // the partner (or anyone else) can't use it
+    let (st, e) = b.post("/v1/invites/redeem", json!({"secret": secret})).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "{e}");
+    let secret2 = format!("link-{}", Uuid::new_v4());
+    a.post(&format!("/v1/spaces/{space}/invites"), json!({"secret_hash": sha(&secret2), "kind": "device"})).await;
+    // the same person on a new device: same account, new session
+    let r: Value = reqwest::Client::new()
+        .post(format!("{}/v1/auth/refresh", s.base))
+        .json(&json!({"refresh_token": a.refresh}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let phone = Client { http: reqwest::Client::new(), base: s.base.clone(), token: r["access_token"].as_str().unwrap().into(), refresh: r["refresh_token"].as_str().unwrap().into(), user: a.user };
+    let (st, r) = phone.post("/v1/invites/redeem", json!({"secret": secret2})).await;
+    assert_eq!(st, StatusCode::OK, "{r}");
+    assert_eq!(r["kind"], "device");
+    let dp = Uuid::new_v4();
+    assert_eq!(phone.post(&format!("/v1/spaces/{space}/devices"), json!({"id": dp, "name": "Phone"})).await.0, StatusCode::OK);
+    let members: i64 = sqlx::query_scalar("select count(*) from members where space_id = $1").bind(space).fetch_one(&s.db).await.unwrap();
+    assert_eq!(members, 2, "still a couple");
+
+    // the snapshot for the new device is free even on the free tier with no allowance left
+    sqlx::query("update spaces set media_period = to_char(now() at time zone 'utc', 'YYYY-MM'), media_bytes = 100 * 1024 * 1024 where id = $1").bind(space).execute(&s.db).await.unwrap();
+    let hash = sha(&format!("bootstrap|{dp}"));
+    let (st, e) = a.call(reqwest::Method::PUT, &format!("/v1/spaces/{space}/blobs/{hash}"), Some(json!({"size": 50_000_000, "chunk_size": 8_388_608, "chunk_count": 6, "sender_device": da, "recipients": [dp], "purpose": "bootstrap"}))).await;
+    assert_eq!(st, StatusCode::OK, "{e}");
+    assert_eq!(a.post(&format!("/v1/spaces/{space}/blobs/{hash}/chunks/0/upload"), json!({})).await.0, StatusCode::OK);
+    // ...but only to your own fresh device
+    let (st, _) = a.call(reqwest::Method::PUT, &format!("/v1/spaces/{space}/blobs/{}", sha("sneaky")), Some(json!({"size": 10, "chunk_size": 8, "chunk_count": 2, "sender_device": da, "recipients": [_db], "purpose": "bootstrap"}))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    // the free tier lists a capsule limit; trial/premium don't
+    assert_eq!(a.get(&format!("/v1/spaces/{space}/plan")).await.1["capsule_limit"], 3);
 }

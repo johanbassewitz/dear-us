@@ -126,6 +126,10 @@ pub async fn set_endpoint(State(state): State<Arc<AppState>>, AuthUser(user): Au
 #[derive(Deserialize)]
 pub struct CreateInvite {
     pub secret_hash: String,
+    /// "partner" (default): the other person, 48 h. "device": one more of your own devices,
+    /// 15 minutes, and only your own account can use it.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 /// One-time, 48 hours. Only the hash of the secret is stored; the secret (and the space key)
@@ -135,10 +139,17 @@ pub async fn create_invite(State(state): State<Arc<AppState>>, AuthUser(user): A
     if b.secret_hash.len() != 64 || !b.secret_hash.bytes().all(|c| c.is_ascii_hexdigit()) {
         return Err(ApiError::bad("bad invite"));
     }
-    sqlx::query("insert into invites(secret_hash, space_id, created_by, expires_at) values ($1, $2, $3, now() + interval '48 hours')")
+    let (kind, minutes) = match b.kind.as_deref().unwrap_or("partner") {
+        "partner" => ("partner", 48 * 60),
+        "device" => ("device", 15),
+        _ => return Err(ApiError::bad("unknown invite kind")),
+    };
+    sqlx::query("insert into invites(secret_hash, space_id, created_by, expires_at, kind) values ($1, $2, $3, now() + make_interval(mins => $4), $5)")
         .bind(b.secret_hash.to_lowercase())
         .bind(space)
         .bind(user)
+        .bind(minutes)
+        .bind(kind)
         .execute(&state.db)
         .await?;
     Ok(Json(true))
@@ -152,21 +163,30 @@ pub struct Redeem {
 #[derive(Serialize)]
 pub struct Redeemed {
     pub space_id: Uuid,
+    pub kind: String,
 }
 
 /// The partner joins. A space holds two people at most. Pairing starts the 30-day trial.
 pub async fn redeem_invite(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, Json(b): Json<Redeem>) -> ApiResult<Json<Redeemed>> {
     let mut tx = state.db.begin().await?;
-    let space: Option<Uuid> = sqlx::query_scalar(
+    let found: Option<(Uuid, String, Uuid)> = sqlx::query_as(
         "update invites set used_by = $2, used_at = now()
           where secret_hash = $1 and used_by is null and expires_at > now()
-          returning space_id",
+          returning space_id, kind, created_by",
     )
     .bind(sha256_hex(b.secret.trim()))
     .bind(user)
     .fetch_optional(&mut *tx)
     .await?;
-    let space = space.ok_or_else(|| ApiError::bad("This invite is invalid, expired, or already used. Ask your partner for a new one."))?;
+    let (space, kind, creator) = found.ok_or_else(|| ApiError::bad("This code is invalid, expired, or already used. Ask for a new one."))?;
+    if kind == "device" {
+        // linking one more of your own devices: never a way in for anyone else
+        if creator != user {
+            return Err(ApiError::bad("This is a device link code: sign in with the same account as on your other device."));
+        }
+        tx.commit().await?;
+        return Ok(Json(Redeemed { space_id: space, kind }));
+    }
     let others: i64 = sqlx::query_scalar("select count(*) from members where space_id = $1 and user_id <> $2").bind(space).bind(user).fetch_one(&mut *tx).await?;
     if others >= 2 {
         return Err(ApiError::bad("This space already has two people."));
@@ -181,7 +201,7 @@ pub async fn redeem_invite(State(state): State<Arc<AppState>>, AuthUser(user): A
             .await?;
     }
     tx.commit().await?;
-    Ok(Json(Redeemed { space_id: space }))
+    Ok(Json(Redeemed { space_id: space, kind }))
 }
 
 pub async fn get_plan(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, Path(space): Path<Uuid>) -> ApiResult<Json<Plan>> {

@@ -235,6 +235,85 @@ pub async fn signout(State(state): State<Arc<AppState>>, Json(r): Json<RefreshIn
     Ok(Json(true))
 }
 
+// ------------------------------------------------------------- password reset
+
+const RESET_MINUTES: i32 = 30;
+const RESET_ATTEMPTS: i32 = 5;
+
+fn reset_hash(user: Uuid, code: &str) -> String {
+    sha256_hex(&format!("dearus-reset|{user}|{code}"))
+}
+
+#[derive(Deserialize)]
+pub struct ForgotIn {
+    pub email: String,
+}
+
+/// Emails a 6-digit code. Always answers the same way, so it can't be used to find out which
+/// emails have an account.
+pub async fn forgot(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap, Json(b): Json<ForgotIn>) -> ApiResult<Json<bool>> {
+    let email = check_email(&b.email)?;
+    if !state.limiter.hit(&format!("forgot:{email}"), 3, Duration::from_secs(3600)) || !state.limiter.hit(&format!("forgot-ip:{}", client_key(&headers)), 20, Duration::from_secs(3600)) {
+        return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "A code was just sent. Check your inbox (and spam), or try again in an hour."));
+    }
+    let user: Option<Uuid> = sqlx::query_scalar("select id from users where email = $1").bind(&email).fetch_optional(&state.db).await?;
+    if let Some(user) = user {
+        let code = format!("{:06}", rand::random::<u32>() % 1_000_000);
+        sqlx::query(
+            "insert into password_resets(user_id, code_hash, expires_at) values ($1, $2, now() + make_interval(mins => $3))
+             on conflict (user_id) do update set code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, created_at = now()",
+        )
+        .bind(user)
+        .bind(reset_hash(user, &code))
+        .bind(RESET_MINUTES)
+        .execute(&state.db)
+        .await?;
+        let text = format!(
+            "Hi,\n\nYour Dear Us code to choose a new password is:\n\n    {code}\n\nIt works for {RESET_MINUTES} minutes. If you didn't ask for it, you can ignore this email: your account and memories are safe.\n\nDear Us"
+        );
+        crate::mail::send(&state, &email, "Your Dear Us code", &text).await?;
+    }
+    Ok(Json(true))
+}
+
+#[derive(Deserialize)]
+pub struct ResetIn {
+    pub email: String,
+    pub code: String,
+    pub password: String,
+}
+
+/// Sets a new password with the emailed code, signs out every other device's session and signs
+/// this one in. Memories aren't affected: they're locked with the space key, not the password.
+pub async fn reset(State(state): State<Arc<AppState>>, Json(b): Json<ResetIn>) -> ApiResult<Json<Tokens>> {
+    let email = check_email(&b.email)?;
+    check_password(&b.password)?;
+    let wrong = || ApiError::new(StatusCode::BAD_REQUEST, "wrong_code", "That code isn't right or has expired. Ask for a new one.");
+    let row: Option<(Uuid, String, i32)> = sqlx::query_as(
+        "select r.user_id, r.code_hash, r.attempts from password_resets r join users u on u.id = r.user_id
+          where u.email = $1 and r.expires_at > now()",
+    )
+    .bind(&email)
+    .fetch_optional(&state.db)
+    .await?;
+    let Some((user, hash, attempts)) = row else { return Err(wrong()) };
+    if attempts >= RESET_ATTEMPTS {
+        sqlx::query("delete from password_resets where user_id = $1").bind(user).execute(&state.db).await?;
+        return Err(wrong());
+    }
+    if reset_hash(user, b.code.trim()) != hash {
+        sqlx::query("update password_resets set attempts = attempts + 1 where user_id = $1").bind(user).execute(&state.db).await?;
+        return Err(wrong());
+    }
+    let new_hash = hash_password(b.password).await?;
+    let mut tx = state.db.begin().await?;
+    sqlx::query("update users set password_hash = $2 where id = $1").bind(user).bind(new_hash).execute(&mut *tx).await?;
+    sqlx::query("delete from password_resets where user_id = $1").bind(user).execute(&mut *tx).await?;
+    sqlx::query("delete from refresh_tokens where user_id = $1").bind(user).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(Json(issue(&state, user).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -25,6 +25,7 @@ swept (the sender always keeps the original).
 | Cloud media | 100 MB / month | unlimited | unlimited | 100 MB / month |
 | Wi-Fi media | unlimited | unlimited | unlimited | unlimited |
 | Cupid arrows | 10 / month | 100 / month | 100 / month | 10 / month |
+| Time capsules sealed at once | 3 | unlimited | unlimited | 3 |
 
 Top-up arrows never expire. A Gemini failure gives the arrow back.
 
@@ -60,9 +61,19 @@ TEST_DATABASE_URL=postgres://postgres:pw@localhost:5432/postgres cargo test
 delete the `db` service. **Scaling the API:** it's stateless except for the sign-in brake
 (in memory, per instance), so you can run several behind a load balancer.
 
-## Before launch (not built yet)
+## Accounts on several devices
 
-- **Password reset / email verification** needs an email provider (e.g. Resend, Postmark).
-  Until then a forgotten password means creating a new account and re-pairing; memories are
-  safe on the PCs either way.
+One account works on any number of devices at once (PC, a second PC, later the phone). A new
+device is linked from an existing one with a 15-minute code that only the same account can
+use; the existing device then sends it one encrypted snapshot (free, not counted against the
+photo allowance), and photos follow as normal files.
+
+## Password reset
+
+`POST /v1/auth/forgot` emails a 6-digit code (30 minutes, 5 tries); `POST /v1/auth/reset` sets
+the new password and signs out every other session. Memories are unaffected: they're locked
+with the couple's space key, not the password. Set `RESEND_API_KEY` and `MAIL_FROM`.
+
+## Before launch
+
 - Verify the Microsoft Store B2B endpoints against a sandbox purchase (`src/billing/microsoft.rs`).

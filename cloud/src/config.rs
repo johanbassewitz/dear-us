@@ -23,6 +23,17 @@ pub struct MicrosoftStore {
     pub arrows_300: Option<String>,
 }
 
+/// How password-reset emails go out.
+#[derive(Clone)]
+pub enum Mail {
+    /// Production: Resend (https://resend.com). `from` must be on a verified domain.
+    Resend { api_key: String, from: String },
+    /// No provider configured (development): the code is written to the server log.
+    Log,
+    /// Tests: kept in memory as (to, body).
+    Memory(std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>),
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub bind: String,
@@ -38,7 +49,10 @@ pub struct Config {
     pub gemini_model: String,
     pub gemini_fallback_model: String,
     pub microsoft: Option<MicrosoftStore>,
+    pub mail: Mail,
     pub trial_days: i64,
+    /// Free tier: time capsules that can be sealed and waiting at the same time.
+    pub free_capsules: i32,
     /// Free tier: cloud media per calendar month.
     pub free_media_bytes: i64,
     pub free_cupid: i32,
@@ -90,7 +104,12 @@ impl Config {
             gemini_model: opt("GEMINI_MODEL").unwrap_or_else(|| "gemini-flash-latest".into()),
             gemini_fallback_model: opt("GEMINI_FALLBACK_MODEL").unwrap_or_else(|| "gemini-flash-lite-latest".into()),
             microsoft,
+            mail: match opt("RESEND_API_KEY") {
+                Some(api_key) => Mail::Resend { api_key, from: opt("MAIL_FROM").ok_or("MAIL_FROM is required with RESEND_API_KEY (e.g. Dear Us <hello@dearus.app>)")? },
+                None => Mail::Log,
+            },
             trial_days: num("TRIAL_DAYS", 30),
+            free_capsules: num("FREE_CAPSULES", 3),
             free_media_bytes: num("FREE_MEDIA_MB", 100i64) * 1024 * 1024,
             free_cupid: num("FREE_CUPID_PER_MONTH", 10),
             premium_cupid: num("PREMIUM_CUPID_PER_MONTH", 100),
@@ -111,7 +130,9 @@ impl Config {
             gemini_model: "gemini-flash-latest".into(),
             gemini_fallback_model: "gemini-flash-lite-latest".into(),
             microsoft: None,
+            mail: Mail::Memory(Default::default()),
             trial_days: 30,
+            free_capsules: 3,
             free_media_bytes: 100 * 1024 * 1024,
             free_cupid: 10,
             premium_cupid: 100,

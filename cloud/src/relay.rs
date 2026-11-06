@@ -157,7 +157,14 @@ pub struct PutBlob {
     pub chunk_count: i32,
     pub sender_device: Uuid,
     pub recipients: Vec<Uuid>,
+    /// "media" (default) or "bootstrap": the one-time snapshot for a newly linked device.
+    #[serde(default)]
+    pub purpose: Option<String>,
 }
+
+/// Biggest one-time snapshot accepted for a newly linked device (text only; photos follow
+/// as normal files).
+const BOOTSTRAP_MAX: i64 = 256 * 1024 * 1024;
 
 /// Announces a file. Nothing is charged yet: files that end up going over Wi-Fi are free.
 pub async fn put_blob(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, Path((space, hash)): Path<(Uuid, String)>, Json(b): Json<PutBlob>) -> ApiResult<Json<bool>> {
@@ -168,8 +175,28 @@ pub async fn put_blob(State(state): State<Arc<AppState>>, AuthUser(user): AuthUs
     if b.size < 0 || b.chunk_size <= 0 || b.chunk_size > 16 * 1024 * 1024 || i64::from(b.chunk_count) != expected || b.recipients.len() > 50 {
         return Err(ApiError::bad("file description doesn't add up"));
     }
+    let bootstrap = match b.purpose.as_deref().unwrap_or("media") {
+        "media" => false,
+        "bootstrap" => {
+            // free, but only for devices that just joined, and only the sender's own
+            let fresh: i64 = sqlx::query_scalar(
+                "select count(*) from devices where space_id = $1 and id = any($2) and user_id = $3 and revoked_at is null
+                   and registered_at > now() - interval '1 day'",
+            )
+            .bind(space)
+            .bind(&b.recipients)
+            .bind(user)
+            .fetch_one(&state.db)
+            .await?;
+            if b.size > BOOTSTRAP_MAX || b.recipients.is_empty() || fresh != b.recipients.len() as i64 {
+                return Err(ApiError::bad("A device snapshot can only go to your own newly linked device."));
+            }
+            true
+        }
+        _ => return Err(ApiError::bad("unknown file purpose")),
+    };
     sqlx::query(
-        "insert into blobs(space_id, hash, size, chunk_size, chunk_count, sender_device, recipients) values ($1, $2, $3, $4, $5, $6, $7)
+        "insert into blobs(space_id, hash, size, chunk_size, chunk_count, sender_device, recipients, purpose, counted) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          on conflict (space_id, hash) do nothing",
     )
     .bind(space)
@@ -179,6 +206,8 @@ pub async fn put_blob(State(state): State<Arc<AppState>>, AuthUser(user): AuthUs
     .bind(b.chunk_count)
     .bind(b.sender_device)
     .bind(&b.recipients)
+    .bind(if bootstrap { "bootstrap" } else { "media" })
+    .bind(bootstrap) // a snapshot never counts against the photo allowance
     .execute(&state.db)
     .await?;
     Ok(Json(true))

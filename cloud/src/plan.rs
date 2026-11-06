@@ -56,6 +56,8 @@ pub struct Plan {
     pub cupid_used: i32,
     pub cupid_bonus: i32,
     pub cupid_remaining: i32,
+    /// Time capsules that can be sealed and waiting at once (None = unlimited).
+    pub capsule_limit: Option<i32>,
     /// The Store add-ons can be bought (billing is configured on the server).
     pub billing_available: bool,
 }
@@ -89,6 +91,7 @@ pub fn compute(cfg: &crate::config::Config, row: &SpaceRow, now: DateTime<Utc>) 
         cupid_used,
         cupid_bonus: row.cupid_bonus,
         cupid_remaining: (allowance - cupid_used).max(0) + row.cupid_bonus,
+        capsule_limit: (!unlimited).then_some(cfg.free_capsules),
         billing_available: cfg.microsoft.is_some(),
     }
 }

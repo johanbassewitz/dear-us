@@ -128,6 +128,9 @@ Dear Us transitions from an open-source/hobby desktop app into a cross-platform 
 | Cupid | Our paid Gemini key behind the cloud. Arrows per couple: trial/premium 100/month, free/solo 10/month, top-ups never expire, failures refunded, the daily question pick is free. |
 | Trial | 30 days, starts when the partner joins (pairing). |
 | Existing users | The personal edition (own Supabase + Gemini key, GitHub updates) stays exactly as it is, as the default build. |
-| Not yet built | Password reset (email provider), automated cloud snapshots, free-tier limits on 4K media / creating capsules. |
+| Snapshots (2026-11-06) | Daily **encrypted backups to the couple's own cloud drive** (OneDrive / Google Drive / iCloud Drive / Dropbox), restorable with the recovery phrase. $0 for us; on every plan. |
+| 4K media | Not limited. The free tier's only media limit is 100 MB/month of cloud transfer. |
+| Time capsules | Free on every plan; free tier: up to 3 sealed and waiting at once. |
+| Accounts | Password reset by emailed code (Resend). One account on several devices (PC + PC, later phone) via "Link my phone or another PC"; adds no server cost (a linked device is one more mailbox recipient; its one-time snapshot is free). |
 
 Release steps: `docs/STORE_RELEASE.md`. Server: `cloud/README.md`.

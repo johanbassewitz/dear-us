@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Feather, Loader, RotateCcw } from "lucide-react";
+import { Feather, Loader, Lock, RotateCcw } from "lucide-react";
 import { daysLeft, mb, planApi, planKeys, quotaError, usePlan, type Plan } from "./planApi";
 import { BuyButton, useUpgrade } from "./Purchase";
 import { queryClient } from "../../lib/queries";
@@ -51,6 +51,13 @@ export function PlanCard() {
             {" "}
             ({Math.max(0, plan.cupidAllowance - plan.cupidUsed)} of {plan.cupidAllowance} this month{plan.cupidBonus ? ` + ${plan.cupidBonus} extra` : ""})
           </span>
+        </span>
+      </div>
+      <div className="flex items-center gap-2 text-[12.5px]">
+        <Lock size={15} className="text-accent" />
+        <span>
+          Time capsules: {plan.capsuleLimit ? <>up to <b>{plan.capsuleLimit}</b> sealed at once</> : <b>unlimited</b>}
+          <span className="text-muted"> (writing and opening them is always free)</span>
         </span>
       </div>
       {plan.billingAvailable && (

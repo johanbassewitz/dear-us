@@ -14,7 +14,8 @@ export type SyncState =
   | "offline"
   | "waiting_for_space"
   | "error"
-  | "signed_out";
+  | "signed_out"
+  | "linking";
 
 export interface SyncDevice {
   id: string;
@@ -47,6 +48,13 @@ export interface SyncStatus {
   directPeer: boolean;
   /** Store edition: the couple's plan, last known. */
   plan?: Plan | null;
+  /** A newly linked device waiting for its snapshot from the person's other device. */
+  linking?: boolean;
+}
+export interface DeviceLink {
+  code: string;
+  qrSvg: string;
+  expiresInMinutes: number;
 }
 export interface SyncConflict {
   id: string;
@@ -76,6 +84,11 @@ export const syncApi = {
   conflicts: () => call<SyncConflict[]>("sync_conflicts"),
   resolve: (id: string, useOther: boolean) => call<void>("sync_resolve_conflict", { id, useOther }),
   setDirect: (on: boolean) => call<void>("sync_set_direct", { on }),
+  forgotPassword: (email: string) => call<void>("sync_forgot_password", { email }),
+  resetPassword: (email: string, code: string, password: string) => call<void>("sync_reset_password", { email, code, password }),
+  createDeviceLink: () => call<DeviceLink>("sync_create_device_link"),
+  readDeviceLink: (code: string) => call<{ email: string; fromDevice: string }>("sync_read_device_link", { code }),
+  linkDevice: (code: string, password: string) => call<void>("sync_link_device", { input: { code, password } }),
 };
 
 export const syncKeys = { status: ["sync", "status"] as const, conflicts: ["sync", "conflicts"] as const };
@@ -132,6 +145,8 @@ export function describe(s: SyncStatus | undefined, partner = "your partner"): {
           sentence: `Your memories keep syncing. This month's free cloud space for photos and videos is used up, so new ones travel over your home Wi-Fi when you're both home, or through the cloud next month.`,
         };
       return { label: "Cloud space full", tone: "gold", sentence: `The temporary cloud space is full for now. Big files wait safely here until ${partner}'s PC picks up the earlier ones.` };
+    case "linking":
+      return { label: "Linking this device", tone: "gold", sentence: "Bringing your memories over from your other device. Keep Dear Us open there for a minute." };
     case "signed_out":
       return { label: "Sign in to sync", tone: "accent", sentence: "Your sign-in expired. Your memories are safe here; sign in again to keep syncing." };
     case "error":

@@ -18,6 +18,8 @@ export interface Plan {
   cupidUsed: number;
   cupidBonus: number;
   cupidRemaining: number;
+  /** Time capsules that can be sealed and waiting at once (null = unlimited). */
+  capsuleLimit?: number | null;
   billingAvailable: boolean;
 }
 

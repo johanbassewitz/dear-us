@@ -5,6 +5,7 @@ import { keys, queryClient } from "../../lib/queries";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
 import { useIsStore } from "../../lib/edition";
+import { ForgotPassword } from "./ForgotPassword";
 
 /** Join the partner's space with their invite code. `needName` on a brand-new install. */
 export function JoinForm({ needName, onJoined }: { needName: boolean; onJoined?: () => void }) {
@@ -58,6 +59,7 @@ export function JoinForm({ needName, onJoined }: { needName: boolean; onJoined?:
         <input type="checkbox" checked={!create} onChange={(e) => setCreate(!e.target.checked)} className="accent-[var(--accent)]" />
         {store ? "I already have a Dear Us account" : "I already have an account in our project"}
       </label>
+      {store && !create && <ForgotPassword initialEmail={email} />}
       {confirmEmail && (
         <div className="rounded-xl bg-gold px-4 py-3 text-[12.5px] text-ink-soft">
           Check your inbox and confirm your email, then press <b>I've confirmed, join</b>.

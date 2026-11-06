@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArchiveRestore, FolderOpen, HardDriveDownload, Loader, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { ArchiveRestore, Cloud, FolderOpen, HardDriveDownload, Loader, Lock, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { useIsStore } from "../../lib/edition";
 import { call, isDesktop } from "../../lib/api";
 import { queryClient } from "../../lib/queries";
 import { daysUntilPurge } from "../../lib/format";
@@ -17,6 +18,12 @@ interface BackupStatus {
   lastCopied: number | null;
   lastTotal: number | null;
   localSnapshots: number;
+  /** Store edition: new backups are sealed with the space key. */
+  encrypted?: boolean;
+}
+interface CloudFolder {
+  provider: string;
+  path: string;
 }
 interface VerifyReport {
   ok: boolean;
@@ -35,6 +42,7 @@ interface BackupInfo {
   spaceName: string | null;
   entries: number;
   files: number;
+  encrypted?: boolean;
 }
 interface BinItem {
   entity: string;
@@ -49,10 +57,11 @@ export const backupApi = {
   setFolder: (path: string) => call<void>("backup_set_folder", { path }),
   setAuto: (on: boolean) => call<void>("backup_set_auto", { on }),
   run: () => call<{ copiedFiles: number; totalFiles: number; verify: VerifyReport }>("backup_run"),
-  inspect: (path: string) => call<BackupInfo>("backup_inspect", { path }),
-  verify: (path: string) => call<VerifyReport>("backup_verify", { path }),
+  inspect: (path: string, phrase?: string) => call<BackupInfo>("backup_inspect", { path, phrase: phrase ?? null }),
+  verify: (path: string) => call<VerifyReport>("backup_verify", { path, phrase: null }),
+  cloudFolders: () => call<CloudFolder[]>("backup_cloud_folders"),
   verifyArchive: () => call<VerifyReport>("archive_verify"),
-  restore: (path: string) => call<RestoreReport>("backup_restore", { path }),
+  restore: (path: string, phrase?: string) => call<RestoreReport>("backup_restore", { path, phrase: phrase ?? null }),
   binList: () => call<BinItem[]>("bin_list"),
   binRestore: (entity: string, id: string) => call<void>("bin_restore", { entity, id }),
   binPurge: (entity: string, id: string) => call<void>("bin_purge", { entity, id }),
@@ -96,21 +105,33 @@ export function RestorePanel({ onDone }: { onDone?: () => void }) {
   const [info, setInfo] = useState<BackupInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useProgress();
+  // encrypted backups on a PC without the space key: the recovery phrase opens them
+  const [locked, setLocked] = useState<string | null>(null);
+  const [phrase, setPhrase] = useState("");
+  const open = async (p: string, withPhrase?: string) => {
+    try {
+      setInfo(await backupApi.inspect(p, withPhrase));
+      setPath(p);
+      setLocked(null);
+    } catch (e) {
+      const m = String(e).replace(/^Error:\s*/, "");
+      if (m.startsWith("[backup_locked]") || m.startsWith("[backup_wrong_key]")) {
+        setLocked(p);
+        setPath(null);
+        setInfo(null);
+        if (withPhrase) toastError(m.replace(/^\[[a-z_]+\]\s*/, ""));
+      } else toastError(m);
+    }
+  };
   const choose = async () => {
     const p = await pickFolder("Choose the backup folder (DearUsBackup)");
-    if (!p) return;
-    try {
-      setInfo(await backupApi.inspect(p));
-      setPath(p);
-    } catch (e) {
-      toastError(String(e));
-    }
+    if (p) await open(p);
   };
   const restore = async () => {
     setBusy(true);
     setProgress(null);
     try {
-      const r = await backupApi.restore(path!);
+      const r = await backupApi.restore(path!, phrase.trim() || undefined);
       queryClient.invalidateQueries();
       toast(r.addedRows || r.addedFiles ? `Restored ${r.addedRows} items and ${r.addedFiles} photos/videos ♡` : "Everything in that backup is already here ♡");
       onDone?.();
@@ -122,9 +143,26 @@ export function RestorePanel({ onDone }: { onDone?: () => void }) {
   };
   return (
     <div className="flex flex-col gap-3">
+      {locked && (
+        <div className="flex flex-col gap-2 rounded-xl bg-paper-2 p-3.5">
+          <strong className="flex items-center gap-1.5 text-[12.5px]">
+            <Lock size={13} className="text-accent" /> This backup is encrypted
+          </strong>
+          <span className="text-[12px] text-muted">Enter the 24-word recovery phrase you wrote down when you set up your shared space.</span>
+          <textarea value={phrase} onChange={(e) => setPhrase(e.target.value)} rows={3} spellCheck={false} placeholder="word1 word2 word3 …" className="field-input resize-none font-mono text-[12px]" />
+          <div>
+            <Button size="sm" onClick={() => open(locked, phrase)} disabled={phrase.trim().split(/\s+/).length < 24}>
+              Open backup
+            </Button>
+          </div>
+        </div>
+      )}
       {info && path ? (
         <div className="rounded-xl bg-paper-2 p-3.5 text-[12.5px]">
-          <strong>{info.spaceName ?? "Dear Us backup"}</strong>
+          <strong className="flex items-center gap-1.5">
+            {info.encrypted && <Lock size={12} className="text-accent" />}
+            {info.spaceName ?? "Dear Us backup"}
+          </strong>
           <div className="text-muted">
             Saved {when(info.createdAt)} · {info.entries} memories · {info.files} photos/videos
           </div>
@@ -146,8 +184,36 @@ export function RestorePanel({ onDone }: { onDone?: () => void }) {
   );
 }
 
+/** Store edition: one click to keep (encrypted) backups in your own cloud drive. */
+function CloudFolders({ current, onPick }: { current: string | null; onPick: (path: string, provider: string) => void }) {
+  const { data } = useQuery({ queryKey: ["backup", "cloud-folders"], queryFn: backupApi.cloudFolders, enabled: isDesktop });
+  if (!data?.length)
+    return (
+      <p className="text-[11.5px] text-faint">
+        Tip: install OneDrive, Google Drive, iCloud for Windows or Dropbox and sign in, and your backups can go to your own cloud with one click.
+      </p>
+    );
+  return (
+    <div className="flex flex-col gap-2">
+      <strong className="text-[12.5px]">Back up to your own cloud</strong>
+      <div className="flex flex-wrap gap-2">
+        {data.map((c) => {
+          const on = !!current && current.startsWith(c.path);
+          return (
+            <Button key={c.path} size="sm" variant={on ? "primary" : "secondary"} icon={<Cloud size={13} />} title={c.path} onClick={() => onPick(c.path, c.provider)}>
+              {c.provider}
+              {on ? " ✓" : ""}
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function BackupSettings() {
   const { data: st } = useQuery({ queryKey: ["backup", "status"], queryFn: backupApi.status, enabled: isDesktop });
+  const store = useIsStore();
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["backup"] });
   const [busy, setBusy] = useState<string | null>(null);
   const [report, setReport] = useState<string | null>(null);
@@ -163,6 +229,16 @@ export function BackupSettings() {
       await backupApi.setFolder(p);
       refresh();
       toast("Backup folder saved. Daily backups are on.");
+    } catch (e) {
+      toastError(String(e));
+    }
+  };
+  const pickCloud = async (path: string, provider: string) => {
+    try {
+      await backupApi.setFolder(path);
+      await backupApi.setAuto(true);
+      refresh();
+      toast(`Daily backups to ${provider} are on${st.encrypted ? ", encrypted" : ""} ♡`);
     } catch (e) {
       toastError(String(e));
     }
@@ -212,6 +288,17 @@ export function BackupSettings() {
           {st.folder ? "Change" : "Choose folder"}
         </Button>
       </div>
+
+      {store && <CloudFolders current={st.folder} onPick={pickCloud} />}
+      {store &&
+        (st.encrypted ? (
+          <p className="flex items-start gap-2 rounded-lg bg-sage px-3 py-2 text-[12px] text-[#3f6545]">
+            <Lock size={14} className="mt-0.5 shrink-0" />
+            Backups are encrypted with your space key: OneDrive, Google or Apple can't read them. On a new PC, your recovery phrase opens them.
+          </p>
+        ) : (
+          <p className="text-[11.5px] text-muted">Backups are encrypted once you create or join your shared space (Partner sync).</p>
+        ))}
 
       {st.folder && (
         <label className="flex items-center justify-between gap-4">

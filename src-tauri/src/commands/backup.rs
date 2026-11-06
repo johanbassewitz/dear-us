@@ -25,6 +25,8 @@ pub struct BackupStatus {
     last_copied: Option<i64>,
     last_total: Option<i64>,
     local_snapshots: usize,
+    /// Store edition: new backups are sealed with the space key.
+    encrypted: bool,
 }
 
 #[tauri::command]
@@ -41,6 +43,8 @@ pub fn backup_status(state: State<AppState>) -> AppResult<BackupStatus> {
         last_copied: last.as_ref().and_then(|l| l["copied"].as_i64()),
         last_total: last.as_ref().and_then(|l| l["total"].as_i64()),
         local_snapshots: snaps,
+        encrypted: cfg!(feature = "store")
+            && crate::sync::device_id(&conn).ok().and_then(|d| crate::sync::service::load_key(&d).ok().flatten()).is_some(),
     })
 }
 

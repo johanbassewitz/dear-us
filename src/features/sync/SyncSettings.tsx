@@ -4,6 +4,8 @@ import { CheckCircle2, ClipboardCopy, Cloud, KeyRound, Laptop, Loader, RefreshCw
 import setupSql from "../../../supabase/setup.sql?raw";
 import { describe, syncApi, syncKeys, useSyncStatus, type SyncConflict } from "./syncApi";
 import { JoinForm } from "./JoinForm";
+import { ForgotPassword } from "./ForgotPassword";
+import { LinkDeviceButton, LinkForm } from "./LinkDevice";
 import { useProfile, queryClient } from "../../lib/queries";
 import { useIsStore } from "../../lib/edition";
 import { isDesktop } from "../../lib/api";
@@ -47,6 +49,18 @@ function CloudSetup() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  const [linking, setLinking] = useState(false);
+
+  if (linking)
+    return (
+      <div>
+        <p className="mb-4 text-[12.5px] text-muted">Already using Dear Us on another device? Link this one to it with your own account.</p>
+        <LinkForm />
+        <button onClick={() => setLinking(false)} className="mt-4 text-[12px] text-muted hover:text-ink">
+          ← Back
+        </button>
+      </div>
+    );
 
   if (joining)
     return (
@@ -78,6 +92,11 @@ function CloudSetup() {
         <button onClick={() => setJoining(true)} className="font-bold text-accent hover:underline">
           Join with an invite code →
         </button>
+        <br />
+        <b>Using Dear Us on another device already?</b>{" "}
+        <button onClick={() => setLinking(true)} className="font-bold text-accent hover:underline">
+          Link to my other device →
+        </button>
       </div>
       <p className="text-[12.5px] text-muted">
         Each of you has your own Dear Us account. Your memories are locked with a key that only exists on your two PCs, so not even we can read them.
@@ -89,6 +108,7 @@ function CloudSetup() {
       <label className="flex items-center gap-2 text-[12px] text-ink-soft">
         <input type="checkbox" checked={haveAccount} onChange={(e) => setHaveAccount(e.target.checked)} className="accent-[var(--accent)]" /> I already have a Dear Us account
       </label>
+      {haveAccount && <ForgotPassword initialEmail={email} />}
       {error && <p className="text-[12px] text-[#b0413e]">{error}</p>}
       <div>
         <Button onClick={connect} disabled={busy || !email || password.length < 8} icon={busy ? <Loader size={15} className="animate-spin" /> : <Cloud size={15} />}>
@@ -339,10 +359,12 @@ function ConflictList() {
   );
 }
 
-function SignInAgain() {
+function SignInAgain({ email }: { email?: string | null }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const store = useIsStore();
   return (
+    <div className="flex flex-col gap-1.5">
     <div className="flex items-end gap-2">
       <div className="flex-1">
         <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -364,6 +386,8 @@ function SignInAgain() {
       >
         Sign in
       </Button>
+    </div>
+    {store && <ForgotPassword initialEmail={email ?? ""} onDone={refresh} />}
     </div>
   );
 }
@@ -418,7 +442,7 @@ function Dashboard() {
           Sync now
         </Button>
       </div>
-      {s.state === "signed_out" && <SignInAgain />}
+      {s.state === "signed_out" && <SignInAgain email={s.email} />}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {tile("waiting to send", s.counts.pendingOps)}
         {tile("waiting for partner", s.counts.awaitingDelivery)}
@@ -496,6 +520,7 @@ function Dashboard() {
           Show recovery phrase
         </Button>
         {partnerDevices.length > 0 && <InvitePanelButton />}
+        {store && <LinkDeviceButton />}
         <Button variant="ghost" size="sm" icon={<Unplug size={13} />} onClick={() => setDisconnect(true)} className="ml-auto text-muted!">
           Stop syncing on this PC
         </Button>
@@ -632,7 +657,7 @@ export function SyncSettings() {
             </>
           )}
         </p>
-        <SignInAgain />
+        <SignInAgain email={s.email} />
         <button
           onClick={async () => {
             await syncApi.disconnect();

@@ -25,7 +25,8 @@ import { Cupid } from "../cupid/Cupid";
 import { Toasts } from "../components/ui/Toast";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorBoundary } from "../components/ui/ErrorBoundary";
-import { useSyncEvents } from "../features/sync/syncApi";
+import { useSyncEvents, useSyncStatus } from "../features/sync/syncApi";
+import { LinkingScreen } from "../features/sync/LinkDevice";
 import { UpdateBanner, useAutoUpdateCheck } from "../features/updates/updates";
 import { usePlanEvents } from "../features/plan/planApi";
 import { PlanBanner } from "../features/plan/PlanBanner";
@@ -152,6 +153,7 @@ export function App() {
   const loadPrefs = usePrefs((s) => s.load);
   const [bootError, setBootError] = useState<string | null>(null);
   const profile = useProfile();
+  const sync = useSyncStatus();
   useSyncEvents();
 
   useEffect(() => {
@@ -180,7 +182,7 @@ export function App() {
   return (
     <>
       <PreviewBanner />
-      {profile.data?.space ? <Shell /> : <WelcomePage />}
+      {profile.data?.space ? <Shell /> : isDesktop && sync.data?.linking ? <LinkingScreen /> : <WelcomePage />}
       <Toasts />
     </>
   );

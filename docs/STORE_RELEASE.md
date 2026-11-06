@@ -48,7 +48,15 @@ Optionally give the subscriptions a free trial of 0 days: our own 30-day trial s
    and associate it with Dear Us (Product management → Product identity → "Associate Azure AD").
 3. Put `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` and the four Store IDs in the server's `.env`.
 
-### 1.4 The cloud server
+### 1.4 Domain and email (password reset)
+1. Buy the domain (e.g. `dearus.app`, about $15/year; Cloudflare Registrar sells at cost).
+2. DNS: `api.dearus.app` → A record to the VPS IP. The Store listing's website and privacy
+   policy can live on the same domain (e.g. a Cloudflare Pages site, free).
+3. Sign up at <https://resend.com> (free: 3,000 emails/month), add the domain, and paste the
+   DNS records it shows (SPF, DKIM). Put `RESEND_API_KEY` and `MAIL_FROM=Dear Us <hello@dearus.app>`
+   in the server's `.env`. Without them, reset codes only appear in the server log.
+
+### 1.5 The cloud server
 Follow `cloud/README.md` → *Deploy*: a ~5 EUR VPS, `api.dearus.app` DNS, R2 bucket with a 30-day
 lifecycle rule, `GEMINI_API_KEY` (Google AI Studio, **paid** tier, so prompts aren't used for training),
 `docker compose up -d --build`, then check `https://api.dearus.app/v1/health`.
@@ -88,6 +96,12 @@ Store purchases only work for an app installed **from the Store**, so:
    - [ ] set `trial_ends_at` in the past on the server → Free: 10 arrows, 100 MB/month; photos over Wi-Fi still sync
    - [ ] HEIC photo and an iPhone .mov show previews (ffmpeg from the package, H.264 via `h264_mf`)
    - [ ] no update prompt ever appears
+   - [ ] "Forgot your password?" → code arrives by email → new password → signed in; the other PC asks to sign in again
+   - [ ] Settings → Backups → OneDrive button → "Back up now" → the OneDrive folder holds only `.dub` files;
+         restore on a fresh install with the recovery phrase
+   - [ ] "Link my phone or another PC" → on a fresh install of a second PC: "I already use Dear Us on another device"
+         → memories appear, photos follow, edits sync between all three devices
+   - [ ] free tier: sealing a 4th waiting capsule shows the friendly limit; opening/writing still works
 4. Run the **Windows App Certification Kit** on the .msix.
 
 When everything passes, switch visibility to public. **Verify during this private test, because it couldn't be tested here:** the Microsoft Store B2B
@@ -105,11 +119,16 @@ thread (`src-tauri/src/billing.rs`; if not, start it on the main thread).
 - **Policy 10.8.x (in-app purchases):** all digital purchases use Store commerce. Done.
 - **Policy 10.2.x (no downloaded code):** the Store edition never downloads ffmpeg or updates.
 
-## 5. Not built yet (before or right after launch)
-- **Password reset / email verification** (needs an email provider) — see `cloud/README.md`.
-- **Automated cloud snapshots** (listed as a Premium perk in the commercial plan): breaks the
-  "the cloud keeps nothing" property and is the one cost that grows with users; decide
-  size/retention first. Today Premium = unlimited cloud media + 100 arrows.
-- **Free-tier limits on 4K media and creating time capsules** (in the commercial plan's table):
-  not enforced; only the cloud-media and Cupid limits are.
+## 5. Decided / built (2026-11-06)
+- **Automated snapshots go to the couple's OWN cloud** (OneDrive, Google Drive, iCloud Drive,
+  Dropbox): daily, incremental, encrypted with the space key, restorable with the recovery
+  phrase. Costs us nothing; available on every plan (memories must never depend on paying).
+- **No resolution limit**: free tier = 100 MB of cloud photos/videos a month, originals intact.
+- **Time capsules are free**; the free tier keeps up to 3 sealed and waiting at once.
+- **Password reset** by emailed 6-digit code.
+- **One account on several devices** with "Link my phone or another PC" (QR code + text code).
+
+## 6. Not built yet
+- Email address verification at sign-up (reset already proves ownership when needed).
+- The phone apps themselves (`docs/MOBILE_PLAN.md`); accounts and linking already support them.
 - Localized prices in the plan card (the Store dialog already shows the real price).

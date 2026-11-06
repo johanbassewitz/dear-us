@@ -75,6 +75,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/spaces/{space}/blobs/{hash}/chunks/{n}/upload", post(r::chunk_upload))
         .route("/v1/spaces/{space}/blobs/{hash}/chunks/{n}/download", post(r::chunk_download))
         .route("/v1/spaces/{space}/cupid", post(cupid::ask))
+        .route("/v1/spaces/{space}/cupid/report", post(cupid::report))
+        .route("/v1/spaces/{space}/leave", post(s::leave))
         .route("/v1/billing/microsoft/tickets", post(billing::microsoft::tickets))
         .route("/v1/spaces/{space}/billing/microsoft/sync", post(billing::microsoft::sync))
         .route("/v1/local-chunks/{*key}", put(storage::local_put).get(storage::local_get))

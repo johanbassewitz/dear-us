@@ -389,3 +389,29 @@ async fn deleting_an_account_hands_the_space_to_the_partner() {
     let left: i64 = sqlx::query_scalar("select count(*) from spaces where id = $1").bind(sp).fetch_one(&s.db).await.unwrap();
     assert_eq!(left, 0);
 }
+
+#[tokio::test]
+async fn reporting_cupid_and_leaving_a_space() {
+    let Some(s) = start().await else { return };
+    let (a, b, space, da, db) = couple(&s).await;
+    let (st, _) = a.post(&format!("/v1/spaces/{space}/cupid/report"), json!({"reason": "harmful", "details": "not kind", "answer": "the reply"})).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(a.post(&format!("/v1/spaces/{space}/cupid/report"), json!({"reason": "boring"})).await.0, StatusCode::BAD_REQUEST);
+    let n: i64 = sqlx::query_scalar("select count(*) from ai_reports where space_id = $1 and reason = 'harmful' and answer = 'the reply'").bind(space).fetch_one(&s.db).await.unwrap();
+    assert_eq!(n, 1);
+    assert_eq!(s.signup().await.post(&format!("/v1/spaces/{space}/cupid/report"), json!({"reason": "other"})).await.0, StatusCode::FORBIDDEN);
+
+    // A disconnects: nothing reaches A's devices any more, B keeps the space
+    let env = Uuid::new_v4();
+    b.post(&format!("/v1/spaces/{space}/envelopes"), json!({"id": env, "sender_device": db, "recipients": [da], "ciphertext": "x"})).await;
+    assert_eq!(a.post(&format!("/v1/spaces/{space}/leave"), json!({})).await.0, StatusCode::OK);
+    assert_eq!(a.get(&format!("/v1/spaces/{space}/devices")).await.0, StatusCode::FORBIDDEN);
+    let (st, devs) = b.get(&format!("/v1/spaces/{space}/devices")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(devs.as_array().unwrap().len(), 1);
+    assert_eq!(b.get(&format!("/v1/spaces/{space}/envelopes/{env}/delivered")).await.1, json!(true));
+    // B can invite someone again later; leaving the last one deletes the space
+    assert_eq!(b.post(&format!("/v1/spaces/{space}/leave"), json!({})).await.0, StatusCode::OK);
+    let left: i64 = sqlx::query_scalar("select count(*) from spaces where id = $1").bind(space).fetch_one(&s.db).await.unwrap();
+    assert_eq!(left, 0);
+}

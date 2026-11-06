@@ -23,6 +23,7 @@ export interface CupidStatus {
   dateIdeas: boolean;
   shareBucketTitles: boolean;
 }
+export type ReportReason = "harmful" | "inappropriate" | "wrong" | "other";
 export interface ChatMessage {
   id: string;
   role: "user" | "model";
@@ -39,6 +40,8 @@ export const cupidApi = {
   clear: () => call<void>("cupid_clear_chat"),
   chat: (message: string) => call<ChatMessage>("cupid_chat", { message }),
   dateIdeas: (filters: Record<string, string>) => call<IdeaInput[]>("cupid_date_ideas", { filters }),
+  report: (messageId: string, reason: ReportReason, details: string | null, includeAnswer: boolean) =>
+    call<void>("cupid_report", { messageId, reason, details, includeAnswer }),
 };
 
 export const cupidKeys = { status: ["cupid", "status"] as const, history: ["cupid", "history"] as const };

@@ -208,3 +208,28 @@ pub async fn get_plan(State(state): State<Arc<AppState>>, AuthUser(user): AuthUs
     require_member(&state.db, space, user).await?;
     Ok(Json(plan::current(&state, space).await?))
 }
+
+/// "Disconnect from my partner": this person leaves the shared space. Their devices stop
+/// receiving anything; the partner keeps the space and its plan. Memories already on either
+/// PC stay there. Leaving the last member deletes the space and anything waiting in it.
+pub async fn leave(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, Path(space): Path<Uuid>) -> ApiResult<Json<bool>> {
+    require_member(&state.db, space, user).await?;
+    let mut tx = state.db.begin().await?;
+    sqlx::query("delete from devices where space_id = $1 and user_id = $2").bind(space).bind(user).execute(&mut *tx).await?;
+    sqlx::query("delete from members where space_id = $1 and user_id = $2").bind(space).bind(user).execute(&mut *tx).await?;
+    let partner: Option<Uuid> = sqlx::query_scalar("select user_id from members where space_id = $1 limit 1").bind(space).fetch_optional(&mut *tx).await?;
+    if let Some(p) = partner {
+        sqlx::query("update spaces set created_by = $2 where id = $1 and created_by = $3").bind(space).bind(p).bind(user).execute(&mut *tx).await?;
+        sqlx::query("update subscriptions set user_id = $2 where space_id = $1 and user_id = $3").bind(space).bind(p).bind(user).execute(&mut *tx).await?;
+        sqlx::query("update purchases set user_id = $2 where space_id = $1 and user_id = $3").bind(space).bind(p).bind(user).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    if partner.is_none() {
+        let hashes: Vec<String> = sqlx::query_scalar("select hash from blobs where space_id = $1").bind(space).fetch_all(&state.db).await?;
+        for h in hashes {
+            crate::relay::forget_blob(&state, space, &h).await?;
+        }
+        sqlx::query("delete from spaces where id = $1").bind(space).execute(&state.db).await?;
+    }
+    Ok(Json(true))
+}

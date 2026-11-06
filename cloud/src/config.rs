@@ -96,7 +96,7 @@ impl Config {
         Ok(Config {
             bind: opt("BIND").unwrap_or_else(|| "0.0.0.0:8080".into()),
             database_url: opt("DATABASE_URL").ok_or("DATABASE_URL is required")?,
-            public_url: opt("PUBLIC_URL").ok_or("PUBLIC_URL is required (e.g. https://api.dearus.app)")?.trim_end_matches('/').to_string(),
+            public_url: opt("PUBLIC_URL").ok_or("PUBLIC_URL is required (e.g. https://dearus-api.axiantlabs.dev)")?.trim_end_matches('/').to_string(),
             secret: secret.into_bytes(),
             r2,
             local_storage_dir: opt("LOCAL_STORAGE_DIR").unwrap_or_else(|| "./data/chunks".into()),
@@ -105,7 +105,7 @@ impl Config {
             gemini_fallback_model: opt("GEMINI_FALLBACK_MODEL").unwrap_or_else(|| "gemini-flash-lite-latest".into()),
             microsoft,
             mail: match opt("RESEND_API_KEY") {
-                Some(api_key) => Mail::Resend { api_key, from: opt("MAIL_FROM").ok_or("MAIL_FROM is required with RESEND_API_KEY (e.g. Dear Us <hello@dearus.app>)")? },
+                Some(api_key) => Mail::Resend { api_key, from: opt("MAIL_FROM").ok_or("MAIL_FROM is required with RESEND_API_KEY (e.g. Dear Us <no-reply@axiantlabs.dev>)")? },
                 None => Mail::Log,
             },
             trial_days: num("TRIAL_DAYS", 30),

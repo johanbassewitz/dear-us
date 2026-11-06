@@ -6,6 +6,7 @@ import { cupidApi, cupidKeys, useCupidStatus, type ChatMessage } from "./cupidAp
 import { queryClient } from "../lib/queries";
 import { quotaError } from "../features/plan/planApi";
 import { BuyButton, useUpgrade } from "../features/plan/Purchase";
+import { ReportAnswer } from "./ReportAnswer";
 import { toastError } from "../components/ui/Toast";
 import { CupidSprite } from "./CupidSprite";
 
@@ -55,7 +56,7 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
         <div className="h-10 w-14"><CupidSprite mood={busy ? "thinking" : "happy"} /></div>
         <div className="flex-1">
           <strong className="font-serif text-[17px]">Cupid</strong>
-          <div className="text-[10.5px] text-muted">Can't see your journal or letters, only this chat.</div>
+          <div className="text-[10.5px] text-muted">Answers are written by AI and can be wrong. He can't see your journal or letters.</div>
           {st?.cloud && st.arrows && (
             <div className="mt-0.5 flex items-center gap-1 text-[10.5px] font-semibold text-accent-deep" title="One arrow per message. They refill on the 1st of each month.">
               <Feather size={11} /> {st.arrows.remaining} arrow{st.arrows.remaining === 1 ? "" : "s"} left
@@ -81,8 +82,11 @@ export function CupidChat({ onClose }: { onClose: () => void }) {
         {!history?.length && <p className="pt-6 text-center font-serif text-[15px] text-muted italic">Hi! Ask me for a date idea, help with a sweet message, or anything on your heart ♡</p>}
         {history?.map((m) => (
           <div key={m.id + m.createdAt} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-accent text-on-accent" : "bg-paper-2 text-ink-soft"}`}>
-              {m.content}
+            <div className="flex max-w-[85%] flex-col items-start">
+              <div className={`rounded-2xl px-3.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap ${m.role === "user" ? "bg-accent text-on-accent" : "bg-paper-2 text-ink-soft"}`}>
+                {m.content}
+              </div>
+              {m.role === "model" && st?.cloud && m.id !== "pending" && <ReportAnswer messageId={m.id} />}
             </div>
           </div>
         ))}

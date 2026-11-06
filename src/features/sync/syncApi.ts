@@ -90,6 +90,7 @@ export const syncApi = {
   readDeviceLink: (code: string) => call<{ email: string; fromDevice: string }>("sync_read_device_link", { code }),
   linkDevice: (code: string, password: string) => call<void>("sync_link_device", { input: { code, password } }),
   deleteAccount: (password: string) => call<void>("sync_delete_account", { password }),
+  leaveSpace: () => call<void>("sync_leave_space"),
 };
 
 export const syncKeys = { status: ["sync", "status"] as const, conflicts: ["sync", "conflicts"] as const };

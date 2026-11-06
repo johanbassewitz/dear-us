@@ -49,27 +49,28 @@ Optionally give the subscriptions a free trial of 0 days: our own 30-day trial s
 3. Put `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` and the four Store IDs in the server's `.env`.
 
 ### 1.4 Domain and email (password reset)
-1. Buy the domain (e.g. `dearus.app`, about $15/year; Cloudflare Registrar sells at cost).
-2. DNS: `api.dearus.app` → A record to the VPS IP. The Store listing's website and privacy
+1. Buy the domain (e.g. `axiantlabs.dev`, about $15/year; Cloudflare Registrar sells at cost).
+2. DNS (Cloudflare): `dearus-api` → A record to the VPS IP, **DNS only (grey cloud)**; the server
+   gets its own certificate. `dearus` → the Cloudflare Pages site (see `site/README.md`). The Store listing's website and privacy
    policy can live on the same domain (e.g. a Cloudflare Pages site, free).
 3. Sign up at <https://resend.com> (free: 3,000 emails/month), add the domain, and paste the
-   DNS records it shows (SPF, DKIM). Put `RESEND_API_KEY` and `MAIL_FROM=Dear Us <hello@dearus.app>`
+   DNS records it shows (SPF, DKIM). Put `RESEND_API_KEY` and `MAIL_FROM=Dear Us <no-reply@axiantlabs.dev>`
    in the server's `.env`. Without them, reset codes only appear in the server log.
 
 ### 1.5 The cloud server
-Follow `cloud/README.md` → *Deploy*: a ~5 EUR VPS, `api.dearus.app` DNS, R2 bucket with a 30-day
+Follow `cloud/README.md` → *Deploy*: a ~5 EUR VPS, `dearus-api.axiantlabs.dev` DNS, R2 bucket with a 30-day
 lifecycle rule, `GEMINI_API_KEY` (Google AI Studio, **paid** tier, so prompts aren't used for training),
-`docker compose up -d --build`, then check `https://api.dearus.app/v1/health`.
+`docker compose up -d --build`, then check `https://dearus-api.axiantlabs.dev/v1/health`.
 
 > The app has the server address built in at build time (`DEARUS_CLOUD_URL`, default
-> `https://api.dearus.app`). If you use another domain, set the repo variable `DEARUS_CLOUD_URL`.
+> `https://dearus-api.axiantlabs.dev`). If you use another domain, set the repo variable `DEARUS_CLOUD_URL`.
 
 ## 2. Build the package
 - **CI (recommended):** Actions → *Microsoft Store package* → Run workflow → download the
   `DearUs-msix` artifact.
 - **Locally on Windows** (Windows SDK installed):
   ```powershell
-  ./packaging/msix/build-msix.ps1 -CloudUrl https://api.dearus.app
+  ./packaging/msix/build-msix.ps1 -CloudUrl https://dearus-api.axiantlabs.dev
   ```
 
 The script builds the Store edition, bundles LGPL ffmpeg (refuses GPL builds), adds tiles and
@@ -132,3 +133,8 @@ thread (`src-tauri/src/billing.rs`; if not, start it on the main thread).
 - Email address verification at sign-up (reset already proves ownership when needed).
 - The phone apps themselves (`docs/MOBILE_PLAN.md`); accounts and linking already support them.
 - Localized prices in the plan card (the Store dialog already shows the real price).
+
+## 7. Running it
+- **Reviewers / friends with Premium:** `bash deploy/grant-premium.sh <email> 30` on the server.
+- **Reviewing Cupid reports:** `bash deploy/ai-reports.sh` (then `bash deploy/ai-reports.sh done`).
+  Check them weekly; tune the prompt in `src-tauri/src/cupid/mod.rs` (PERSONA) if a pattern shows up.

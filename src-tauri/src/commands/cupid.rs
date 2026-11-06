@@ -218,3 +218,29 @@ pub async fn cupid_date_ideas(app: AppHandle, filters: Value) -> AppResult<Vec<I
     }
     Ok(ideas)
 }
+
+/// "Report this answer": tells the Dear Us team an answer from Cupid was harmful, inappropriate
+/// or wrong. Store edition (personal edition: the answer came from the person's own key).
+#[tauri::command]
+pub async fn cupid_report(app: AppHandle, message_id: String, reason: String, details: Option<String>, include_answer: bool) -> AppResult<()> {
+    let answer: Option<String> = {
+        let s = app.state::<AppState>();
+        let conn = s.db.lock().unwrap();
+        conn.query_row("SELECT content FROM cupid_chats WHERE id = ?1 AND role = 'model'", [&message_id], |r| r.get(0)).optional()?
+    };
+    let answer = answer.ok_or_else(|| AppError::invalid("That answer isn't in the chat any more."))?;
+    #[cfg(feature = "store")]
+    {
+        let a = app.clone();
+        return blocking(move || {
+            let relay = crate::sync::service::connect(&a)?;
+            relay.report_cupid(&reason, details.as_deref(), include_answer.then_some(answer.as_str()))
+        })
+        .await;
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = (answer, reason, details, include_answer);
+        Err(AppError::invalid("In this edition Cupid uses your own Gemini key: report answers to Google in AI Studio."))
+    }
+}

@@ -63,3 +63,18 @@ it("asks for a Dear Us account, not a Supabase project, in the Store edition", (
   expect(screen.queryByText(/Supabase/)).not.toBeInTheDocument();
   expect(screen.queryByText(/anon/i)).not.toBeInTheDocument();
 });
+
+it("lets people report one of Cupid's answers", async () => {
+  const reply = { id: "m1", role: "model" as const, content: "Some advice", createdAt: "2026-11-06" };
+  const st = { ...cupid, arrows: { ...cupid.arrows!, remaining: 5 } };
+  queryClient.setQueryData(cupidKeys.status, st);
+  queryClient.setQueryData(cupidKeys.history, [reply]);
+  vi.spyOn(cupidApi, "status").mockResolvedValue(st);
+  vi.spyOn(cupidApi, "history").mockResolvedValue([reply]);
+  const report = vi.spyOn(cupidApi, "report").mockResolvedValue();
+  wrap(<CupidChat onClose={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "Report this answer" }));
+  fireEvent.click(screen.getByLabelText("Hurtful or unsafe"));
+  fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+  await vi.waitFor(() => expect(report).toHaveBeenCalledWith("m1", "harmful", null, true));
+});

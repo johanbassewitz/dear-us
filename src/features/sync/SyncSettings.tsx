@@ -410,6 +410,7 @@ function Dashboard() {
   const [askPhrase, setAskPhrase] = useState(false);
   const [revoke, setRevoke] = useState<string | null>(null);
   const [disconnect, setDisconnect] = useState(false);
+  const [leave, setLeave] = useState(false);
   if (!s) return null;
   const d = describe(s, profile?.partner?.displayName);
   const partnerDevices = s.devices.filter((x) => !x.mine && !x.revoked);
@@ -522,8 +523,8 @@ function Dashboard() {
         </Button>
         {partnerDevices.length > 0 && <InvitePanelButton />}
         {store && <LinkDeviceButton />}
-        <Button variant="ghost" size="sm" icon={<Unplug size={13} />} onClick={() => setDisconnect(true)} className="ml-auto text-muted!">
-          Stop syncing on this PC
+        <Button variant="ghost" size="sm" icon={<Unplug size={13} />} onClick={() => (store ? setLeave(true) : setDisconnect(true))} className="ml-auto text-muted!">
+          {store ? "Disconnect from my partner" : "Stop syncing on this PC"}
         </Button>
       </div>
       <div className="flex items-center justify-between gap-3">
@@ -563,6 +564,24 @@ function Dashboard() {
           } catch (e) {
             toastError(String(e));
           }
+        }}
+      />
+      <ConfirmDialog
+        open={leave}
+        title="Disconnect from your partner?"
+        message="From now on, nothing is shared between you, in either direction, on any of your devices. Everything already on this PC stays here, including what was shared before. Your partner keeps your shared space and its plan. You can connect again later with a new invite code."
+        confirmLabel="Disconnect"
+        danger
+        onCancel={() => setLeave(false)}
+        onConfirm={async () => {
+          setLeave(false);
+          try {
+            await syncApi.leaveSpace();
+            toast("Disconnected. Your memories are still here.");
+          } catch (e) {
+            toastError(String(e).replace(/^Error:\s*/, ""));
+          }
+          refresh();
         }}
       />
       <ConfirmDialog

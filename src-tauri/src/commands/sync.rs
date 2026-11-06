@@ -618,3 +618,32 @@ pub async fn sync_delete_account(app: AppHandle, password: String) -> AppResult<
         Err(AppError::invalid("Accounts live in your own Supabase project in this edition."))
     }
 }
+
+/// Store edition: "Disconnect from my partner". This person leaves the shared space; nothing is
+/// shared any more in either direction. Memories already on this PC (including what the partner
+/// shared before) stay here, and the partner keeps the space and its plan.
+#[tauri::command]
+pub async fn sync_leave_space(app: AppHandle) -> AppResult<()> {
+    #[cfg(feature = "store")]
+    {
+        let a = app.clone();
+        tauri::async_runtime::spawn_blocking(move || service::connect(&a)?.leave_space())
+            .await
+            .map_err(|e| AppError::invalid(e.to_string()))??;
+        let state = app.state::<AppState>();
+        {
+            let conn = state.db.lock().unwrap();
+            let dev = crate::sync::device_id(&conn)?;
+            service::clear_config(&conn, &dev)?;
+            conn.execute("DELETE FROM local_meta WHERE key LIKE 'plan.%' OR key LIKE 'billing.%' OR key LIKE 'link.%'", [])?;
+        }
+        app.state::<SyncService>().reset();
+        service::refresh_status(&app, None);
+        return Ok(());
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = app;
+        Err(AppError::invalid("Use \"Stop syncing on this PC\" in this edition."))
+    }
+}

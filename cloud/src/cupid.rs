@@ -160,3 +160,37 @@ mod tests {
         assert!(validate(&odd).is_err());
     }
 }
+
+#[derive(Deserialize)]
+pub struct ReportIn {
+    /// harmful | inappropriate | wrong | other
+    pub reason: String,
+    #[serde(default)]
+    pub details: Option<String>,
+    /// The answer being reported, only if the person chose to include it.
+    #[serde(default)]
+    pub answer: Option<String>,
+}
+
+/// "Report this answer": kept for review (see docs/STORE_RELEASE.md → Reviewing reports).
+pub async fn report(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, Path(space): Path<Uuid>, Json(b): Json<ReportIn>) -> ApiResult<Json<bool>> {
+    require_member(&state.db, space, user).await?;
+    if !matches!(b.reason.as_str(), "harmful" | "inappropriate" | "wrong" | "other") {
+        return Err(ApiError::bad("Pick a reason."));
+    }
+    if !state.limiter.hit(&format!("ai-report:{user}"), 30, Duration::from_secs(3600)) {
+        return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Thanks, we've got your reports. Try again later."));
+    }
+    let clip = |s: Option<String>, n: usize| s.map(|t| t.chars().take(n).collect::<String>()).filter(|t| !t.trim().is_empty());
+    sqlx::query("insert into ai_reports(id, user_id, space_id, reason, details, answer) values ($1, $2, $3, $4, $5, $6)")
+        .bind(Uuid::new_v4())
+        .bind(user)
+        .bind(space)
+        .bind(&b.reason)
+        .bind(clip(b.details, 2000))
+        .bind(clip(b.answer, 8000))
+        .execute(&state.db)
+        .await?;
+    tracing::warn!("new Cupid report ({}) — review with deploy/ai-reports.sh", b.reason);
+    Ok(Json(true))
+}

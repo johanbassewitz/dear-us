@@ -16,7 +16,7 @@ use std::time::Duration;
 pub const CLOUD_URL: &str = match option_env!("DEARUS_CLOUD_URL") {
     // an empty variable (e.g. an unset CI setting) means "use the default"
     Some(u) if !u.is_empty() => u,
-    _ => "https://api.dearus.app",
+    _ => "https://dearus-api.axiantlabs.dev",
 };
 
 #[derive(Debug, Clone)]
@@ -266,6 +266,16 @@ impl CloudRelay {
         let reply = v["reply"].as_str().unwrap_or_default().to_string();
         let plan: Plan = serde_json::from_value(v["plan"].clone()).map_err(|e| AppError::invalid(e.to_string()))?;
         Ok((reply, plan))
+    }
+
+    /// "Report this answer" for one of Cupid's replies (the text only if the person chose so).
+    pub fn report_cupid(&self, reason: &str, details: Option<&str>, answer: Option<&str>) -> AppResult<()> {
+        self.json::<Value>("POST", &self.sp("/cupid/report"), Some(json!({ "reason": reason, "details": details, "answer": answer }))).map(|_| ())
+    }
+
+    /// Leaves the shared space: nothing more is shared with the partner from now on.
+    pub fn leave_space(&self) -> AppResult<()> {
+        self.json::<Value>("POST", &self.sp("/leave"), Some(json!({}))).map(|_| ())
     }
 
     pub fn store_tickets(&self) -> AppResult<StoreTickets> {

@@ -38,6 +38,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 
+# QR code for linking a phone (Store edition)
+qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
+
 [target.'cfg(windows)'.dependencies]
 # Microsoft Store purchases (Store edition only)
 windows = { version = "0.61", optional = true, features = ["Services_Store", "Foundation", "Foundation_Collections", "Win32_Foundation", "Win32_UI_Shell"] }
@@ -49,7 +52,7 @@ windows = { version = "0.61", optional = true, features = ["Services_Store", "Fo
 #   no self-updater (the Store updates the app). Build with --no-default-features --features store.
 default = ["updater"]
 updater = ["dep:tauri-plugin-updater", "dep:tauri-plugin-process"]
-store = ["dep:windows"]
+store = ["dep:windows", "dep:qrcode"]
 
 [dev-dependencies]
 tempfile = "3"

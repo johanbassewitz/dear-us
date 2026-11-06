@@ -382,3 +382,211 @@ pub fn sync_set_direct(app: AppHandle, on: bool) -> AppResult<()> {
     service::refresh_status(&app, None);
     Ok(())
 }
+
+/// Store edition: emails a code for choosing a new password.
+#[tauri::command]
+pub async fn sync_forgot_password(email: String) -> AppResult<()> {
+    let email = check_email(&email)?;
+    #[cfg(feature = "store")]
+    {
+        let url = backend::normalize_url("")?;
+        return tauri::async_runtime::spawn_blocking(move || crate::sync::cloud::forgot_password(&url, &email))
+            .await
+            .map_err(|e| AppError::invalid(e.to_string()))?;
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = email;
+        Err(AppError::invalid("Reset your password from your Supabase project's dashboard (Authentication → Users)."))
+    }
+}
+
+/// Store edition: sets the new password with the emailed code and signs this PC in.
+#[tauri::command]
+pub async fn sync_reset_password(app: AppHandle, email: String, code: String, password: String) -> AppResult<()> {
+    let email = check_email(&email)?;
+    check_password(&password)?;
+    #[cfg(feature = "store")]
+    {
+        let url = backend::normalize_url("")?;
+        let (u, e) = (url.clone(), email.clone());
+        let session = tauri::async_runtime::spawn_blocking(move || crate::sync::cloud::reset_password(&u, &e, code.trim(), &password))
+            .await
+            .map_err(|e| AppError::invalid(e.to_string()))??;
+        let state = app.state::<AppState>();
+        let dev = device(&state)?;
+        {
+            let conn = state.db.lock().unwrap();
+            let mut cfg = service::load_config(&conn)?.unwrap_or_default();
+            cfg.url = url;
+            cfg.email = Some(email);
+            service::save_config(&conn, &cfg)?;
+        }
+        service::store_refresh(&dev, &session.refresh_token)?;
+        let svc = app.state::<SyncService>();
+        svc.reset();
+        svc.kick();
+        service::refresh_status(&app, None);
+        return Ok(());
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = (app, code, password, email);
+        Err(AppError::invalid("Reset your password from your Supabase project's dashboard."))
+    }
+}
+
+// ------------------------------------------------- linking more of my own devices
+
+const LINK_PREFIX: &str = "DEARUS-LINK1-";
+
+#[derive(Serialize, Deserialize)]
+struct LinkPayload {
+    v: u32,
+    /// space id
+    s: String,
+    /// one-time secret (only its hash is on the server)
+    i: String,
+    /// the space key: the code is as private as the recovery phrase
+    k: String,
+    /// the account to sign in with on the new device
+    e: String,
+    /// this device's name, to show "bringing your memories from …"
+    f: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceLink {
+    pub code: String,
+    /// The same code as a QR code (SVG), for a phone's camera.
+    pub qr_svg: String,
+    pub expires_in_minutes: u32,
+}
+
+/// "Link my phone / another PC": a 15-minute code only this account can use.
+#[tauri::command]
+pub async fn sync_create_device_link(app: AppHandle) -> AppResult<DeviceLink> {
+    #[cfg(feature = "store")]
+    {
+        let a = app.clone();
+        return tauri::async_runtime::spawn_blocking(move || -> AppResult<DeviceLink> {
+            let state = a.state::<AppState>();
+            let (cfg, dev) = {
+                let conn = state.db.lock().unwrap();
+                (service::load_config(&conn)?, crate::sync::device_id(&conn)?)
+            };
+            let cfg = cfg.ok_or_else(|| AppError::invalid("Set up partner sync first."))?;
+            let space = cfg.space.clone().ok_or_else(|| AppError::invalid("Create your shared space first."))?;
+            let email = cfg.email.clone().unwrap_or_default();
+            let key = service::load_key(&dev)?.ok_or_else(|| AppError::invalid("The space key is missing on this PC."))?;
+            let relay = service::connect(&a)?;
+            let existing: Vec<String> = crate::sync::relay::Relay::devices(relay.as_ref())?.into_iter().map(|d| d.id).collect();
+            let secret = random_token(24);
+            relay.create_device_link(&sha256_hex(&secret))?;
+            {
+                let conn = state.db.lock().unwrap();
+                crate::sync::bootstrap::remember_devices(&conn, &existing)?;
+                crate::sync::bootstrap::mark_link_created(&conn)?;
+            }
+            let payload = LinkPayload { v: 1, s: space, i: secret, k: key.to_b64(), e: email, f: service::device_name() };
+            let code = format!("{LINK_PREFIX}{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload)?));
+            let qr = qrcode::QrCode::with_error_correction_level(code.as_bytes(), qrcode::EcLevel::L).map_err(|e| AppError::invalid(e.to_string()))?;
+            let qr_svg = qr.render::<qrcode::render::svg::Color>().min_dimensions(220, 220).quiet_zone(true).build();
+            Ok(DeviceLink { code, qr_svg, expires_in_minutes: 15 })
+        })
+        .await
+        .map_err(|e| AppError::invalid(e.to_string()))?;
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = app;
+        Err(AppError::invalid("Linking devices is part of Dear Us from the Microsoft Store."))
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkPreview {
+    pub email: String,
+    pub from_device: String,
+}
+
+/// Reads a link code (without using it), so the new device can show whose account it is.
+#[tauri::command]
+pub fn sync_read_device_link(code: String) -> AppResult<LinkPreview> {
+    let p = parse_link(&code)?;
+    Ok(LinkPreview { email: p.e, from_device: p.f })
+}
+
+fn parse_link(code: &str) -> AppResult<LinkPayload> {
+    let body = code.trim().strip_prefix(LINK_PREFIX).ok_or_else(|| {
+        if code.trim().starts_with(INVITE_PREFIX) {
+            AppError::invalid("That's a partner invite. To link your own device, use \"Link a device\" on your other device.")
+        } else {
+            AppError::invalid("That doesn't look like a Dear Us link code.")
+        }
+    })?;
+    let raw = URL_SAFE_NO_PAD.decode(body.trim()).map_err(|_| AppError::invalid("The link code seems cut off. Copy it again."))?;
+    let p: LinkPayload = serde_json::from_slice(&raw).map_err(|_| AppError::invalid("The link code seems damaged. Copy it again."))?;
+    SpaceKey::from_b64(&p.k)?;
+    Ok(p)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(not(feature = "store"), allow(dead_code))]
+pub struct LinkInput {
+    pub code: String,
+    pub password: String,
+}
+
+/// New device: joins with the link code from my other device, signed in as the SAME person.
+/// Everything already written arrives as one snapshot, then photos follow.
+#[tauri::command]
+pub async fn sync_link_device(app: AppHandle, input: LinkInput) -> AppResult<()> {
+    let p = parse_link(&input.code)?;
+    let email = check_email(&p.e)?;
+    #[cfg(feature = "store")]
+    {
+        let a = app.clone();
+        tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
+            let state = a.state::<AppState>();
+            {
+                let conn = state.db.lock().unwrap();
+                if crate::db::repo::profile::get(&conn)?.space.is_some() {
+                    return Err(AppError::invalid("This device already has its own Dear Us archive. Linking is for a fresh install."));
+                }
+            }
+            let url = backend::normalize_url("")?;
+            let session = backend::sign_in(&url, "", &email, &input.password)?;
+            let space = backend::redeem_invite(&url, "", &session, &p.i)?;
+            if space != p.s {
+                return Err(AppError::invalid("That link code doesn't match its space. Make a new one."));
+            }
+            let dev = device(&state)?;
+            service::store_refresh(&dev, &session.refresh_token)?;
+            let relay = Arc::new(AccountRelay::new(&url, "", &space, session, service::refresh_saver(&dev)));
+            relay.register_device(&dev, &service::device_name())?;
+            service::store_key(&dev, &SpaceKey::from_b64(&p.k)?)?;
+            {
+                let conn = state.db.lock().unwrap();
+                service::save_config(&conn, &Config { url, anon: String::new(), space: Some(space), email: Some(email) })?;
+                crate::sync::bootstrap::mark_pending(&conn, &p.f)?;
+            }
+            let svc = a.state::<SyncService>();
+            svc.set_relay(relay);
+            svc.kick();
+            Ok(())
+        })
+        .await
+        .map_err(|e| AppError::invalid(e.to_string()))??;
+        service::refresh_status(&app, None);
+        return Ok(());
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = (app, input, email);
+        Err(AppError::invalid("Linking devices is part of Dear Us from the Microsoft Store."))
+    }
+}

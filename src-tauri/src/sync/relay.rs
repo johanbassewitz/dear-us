@@ -56,6 +56,10 @@ pub trait Relay: Send + Sync {
     fn set_endpoint(&self, device: &str, endpoint: Option<&str>) -> AppResult<()>;
     /// Bytes this space currently occupies in the relay (for the free-tier cap).
     fn used_bytes(&self) -> AppResult<i64>;
+    /// Announces the one-time encrypted snapshot for a newly linked device of mine.
+    fn put_bootstrap_meta(&self, meta: &BlobMeta, recipient: &str) -> AppResult<()> {
+        self.put_blob_meta(meta, &[recipient.to_string()])
+    }
 }
 
 #[cfg(test)]

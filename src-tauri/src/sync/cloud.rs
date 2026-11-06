@@ -104,6 +104,17 @@ fn refresh(url: &str, refresh_token: &str) -> AppResult<Session> {
     token_call(url, "/v1/auth/refresh", json!({ "refresh_token": refresh_token }), http_err)
 }
 
+/// Emails a 6-digit code for choosing a new password.
+pub fn forgot_password(url: &str, email: &str) -> AppResult<()> {
+    agent().post(&format!("{url}/v1/auth/forgot")).send_json(json!({ "email": email })).map_err(http_err)?;
+    Ok(())
+}
+
+/// New password with the emailed code. Signs this device in (other sessions are signed out).
+pub fn reset_password(url: &str, email: &str, code: &str, password: &str) -> AppResult<Session> {
+    token_call(url, "/v1/auth/reset", json!({ "email": email, "code": code, "password": password }), http_err)
+}
+
 pub fn redeem_invite(url: &str, _anon: &str, session: &Session, secret: &str) -> AppResult<String> {
     let v: Value = agent()
         .post(&format!("{url}/v1/invites/redeem"))
@@ -130,6 +141,9 @@ pub struct Plan {
     pub cupid_used: i32,
     pub cupid_bonus: i32,
     pub cupid_remaining: i32,
+    /// Time capsules that can be sealed and waiting at once (None = unlimited).
+    #[serde(default)]
+    pub capsule_limit: Option<i32>,
     pub billing_available: bool,
 }
 
@@ -216,6 +230,10 @@ impl CloudRelay {
     }
     pub fn create_invite(&self, secret_hash: &str) -> AppResult<()> {
         self.json::<Value>("POST", &self.sp("/invites"), Some(json!({ "secret_hash": secret_hash }))).map(|_| ())
+    }
+    /// A 15-minute code to link one more of MY devices (only my account can use it).
+    pub fn create_device_link(&self, secret_hash: &str) -> AppResult<()> {
+        self.json::<Value>("POST", &self.sp("/invites"), Some(json!({ "secret_hash": secret_hash, "kind": "device" }))).map(|_| ())
     }
     pub fn revoke_device(&self, device: &str) -> AppResult<()> {
         self.json::<Value>("POST", &self.sp(&format!("/devices/{device}/revoke")), Some(json!({}))).map(|_| ())
@@ -336,6 +354,15 @@ impl Relay for CloudRelay {
     fn set_endpoint(&self, device: &str, endpoint: Option<&str>) -> AppResult<()> {
         self.json::<Value>("PATCH", &self.sp(&format!("/devices/{device}")), Some(json!({ "lan_endpoint": endpoint }))).map(|_| ())
     }
+    /// Free: not charged to the photo allowance; the server only accepts it for my own just-linked device.
+    fn put_bootstrap_meta(&self, m: &BlobMeta, recipient: &str) -> AppResult<()> {
+        self.json::<Value>(
+            "PUT",
+            &self.sp(&format!("/blobs/{}", m.hash)),
+            Some(json!({ "size": m.size, "chunk_size": m.chunk_size, "chunk_count": m.chunk_count, "sender_device": m.sender_device, "recipients": [recipient], "purpose": "bootstrap" })),
+        )
+        .map(|_| ())
+    }
     /// For the Store edition: this month's cloud media charged against the plan's cap.
     fn used_bytes(&self) -> AppResult<i64> {
         self.json("GET", &self.sp("/usage"), None)
@@ -359,6 +386,7 @@ mod tests {
             cupid_used: 0,
             cupid_bonus: 0,
             cupid_remaining: 10,
+            capsule_limit: Some(3),
             billing_available: true,
         };
         assert_eq!(p.engine_cap(), 100);

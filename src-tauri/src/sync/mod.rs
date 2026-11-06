@@ -1,5 +1,8 @@
 pub mod apply;
 pub mod backend;
+// linking more of a person's own devices (link codes are a Store-edition feature)
+#[cfg_attr(not(feature = "store"), allow(dead_code))]
+pub mod bootstrap;
 #[cfg(feature = "store")]
 pub mod cloud;
 pub mod crypto;

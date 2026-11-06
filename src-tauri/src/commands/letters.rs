@@ -26,10 +26,30 @@ pub fn letter_save_draft(state: State<AppState>, id: Option<String>, input: Lett
     letters::save_draft(&mut conn, &me, id.as_deref(), &input)
 }
 
+/// Store edition, free tier: how many time capsules may be sealed and waiting at once.
+/// Writing and opening capsules is always free; only sealing beyond the limit waits.
+#[cfg(feature = "store")]
+fn check_capsule_limit(conn: &rusqlite::Connection, id: &str) -> AppResult<()> {
+    let Some(limit) = crate::sync::service::cached_plan(conn).and_then(|p| p.capsule_limit) else { return Ok(()) };
+    let kind: Option<String> = conn.query_row("SELECT kind FROM letters WHERE id = ?1", [id], |r| r.get(0)).ok();
+    if kind.as_deref() != Some("capsule") {
+        return Ok(());
+    }
+    let waiting = letters::sealed_waiting(conn)?;
+    if waiting >= i64::from(limit) {
+        return Err(AppError::invalid(format!(
+            "[capsule_limit] You have {waiting} time capsules waiting to open, the most the free plan keeps sealed at once. Once one opens you can seal this one, or Premium seals as many as you like."
+        )));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn letter_send(state: State<AppState>, id: String) -> AppResult<()> {
     let mut conn = state.db.lock().unwrap();
     let (w, me) = ctx(&conn)?;
+    #[cfg(feature = "store")]
+    check_capsule_limit(&conn, &id)?;
     letters::send(&mut conn, &w, &me, &id)
 }
 

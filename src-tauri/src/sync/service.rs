@@ -113,6 +113,8 @@ pub struct Status {
     pub direct_enabled: bool,
     /// The partner's PC is reachable on this network right now.
     pub direct_peer: bool,
+    /// A newly linked device waiting for its snapshot from the person's other device.
+    pub linking: bool,
     /// Store edition: the couple's plan (trial / premium / free), last known.
     #[cfg(feature = "store")]
     pub plan: Option<super::cloud::Plan>,
@@ -203,6 +205,7 @@ fn base_status(app: &AppHandle) -> AppResult<Status> {
         counts: counts(&conn)?.into(),
         this_device: device,
         direct_enabled: direct_enabled(&conn),
+        linking: super::bootstrap::pending(&conn),
         #[cfg(feature = "store")]
         plan: cached_plan(&conn),
         ..Default::default()
@@ -229,7 +232,20 @@ pub fn run_once(app: &AppHandle) -> AppResult<Option<Report>> {
         chunk_size: DEFAULT_CHUNK,
         quota_cap: quota_cap(app, relay.as_ref()),
     };
-    let report = ctx.sync_once()?;
+    // A newly linked device first takes in the snapshot from the person's other device.
+    let mut fresh = false;
+    if super::bootstrap::pending(&state.db.lock().unwrap()) {
+        if !super::bootstrap::receive(&ctx)? {
+            return Ok(Some(Report { waiting_for_link: true, ..Default::default() }));
+        }
+        fresh = true;
+    }
+    let mut report = ctx.sync_once()?;
+    report.changed |= fresh;
+    // ...and a device that made a link code brings the new one up to date.
+    if let Err(e) = super::bootstrap::serve_new_devices(&ctx, &relay.user_id()) {
+        report.errors.push(format!("Couldn't send your memories to your new device yet: {e}"));
+    }
     {
         let conn = state.db.lock().unwrap();
         meta_set(&conn, "sync.last_ok", &crate::db::now_iso())?;
@@ -269,7 +285,8 @@ pub fn save_plan(conn: &Connection, p: &super::cloud::Plan) -> AppResult<()> {
     let v = serde_json::json!({
         "tier": p.tier, "trial_ends_at": p.trial_ends_at, "premium_until": p.premium_until, "period": p.period,
         "media_cap_bytes": p.media_cap_bytes, "media_used_bytes": p.media_used_bytes, "cupid_allowance": p.cupid_allowance,
-        "cupid_used": p.cupid_used, "cupid_bonus": p.cupid_bonus, "cupid_remaining": p.cupid_remaining, "billing_available": p.billing_available,
+        "cupid_used": p.cupid_used, "cupid_bonus": p.cupid_bonus, "cupid_remaining": p.cupid_remaining, "capsule_limit": p.capsule_limit,
+        "billing_available": p.billing_available,
     });
     meta_set(conn, "plan.cache", &v.to_string())
 }
@@ -347,7 +364,9 @@ pub fn refresh_status(app: &AppHandle, outcome: Option<&AppResult<Option<Report>
     let prev = svc.status.lock().unwrap().clone();
     match outcome {
         Some(Ok(Some(r))) => {
-            st.state = if r.waiting_for_partner_device {
+            st.state = if r.waiting_for_link {
+                "linking".into()
+            } else if r.waiting_for_partner_device {
                 "waiting_for_partner".into()
             } else if r.waiting_for_space {
                 "waiting_for_space".into()

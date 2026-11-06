@@ -91,10 +91,13 @@ impl Config {
         if secret.len() < 32 {
             return Err("SERVER_SECRET must be at least 32 characters".into());
         }
-        let r2 = match (opt("R2_ENDPOINT"), opt("R2_BUCKET"), opt("R2_ACCESS_KEY_ID"), opt("R2_SECRET_ACCESS_KEY")) {
-            (Some(endpoint), Some(bucket), Some(access_key), Some(secret_key)) => Some(R2 { endpoint, bucket, access_key, secret_key }),
-            (None, None, None, None) => None,
-            _ => return Err("set all of R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (or none)".into()),
+        // R2_BUCKET has a default, so it can be filled in before the keys exist
+        let r2 = match (opt("R2_ENDPOINT"), opt("R2_ACCESS_KEY_ID"), opt("R2_SECRET_ACCESS_KEY")) {
+            (Some(endpoint), Some(access_key), Some(secret_key)) => {
+                Some(R2 { endpoint, bucket: opt("R2_BUCKET").unwrap_or_else(|| "dearus-relay".into()), access_key, secret_key })
+            }
+            (None, None, None) => None,
+            _ => return Err("set all of R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (or none)".into()),
         };
         let microsoft = match (opt("MS_TENANT_ID"), opt("MS_CLIENT_ID"), opt("MS_CLIENT_SECRET")) {
             (Some(tenant_id), Some(client_id), Some(client_secret)) => Some(MicrosoftStore {
@@ -171,5 +174,31 @@ impl Config {
             premium_cupid: 100,
             mailbox_ttl_days: 30,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fresh Render deploy: only the pre-filled values are set, every key is still empty.
+    #[test]
+    fn starts_with_only_the_prefilled_values() {
+        for (k, v) in [
+            ("SERVER_SECRET", "0123456789abcdef0123456789abcdef0123"),
+            ("DATABASE_URL", "postgres://x@y/z"),
+            ("PUBLIC_URL", "https://dearus-api.axianthq.com"),
+            ("R2_BUCKET", "dearus-relay"),
+            ("PADDLE_ENV", "sandbox"),
+            ("MAIL_FROM", "Dear Us <dearus-noreply@axianthq.com>"),
+            ("R2_ENDPOINT", ""),
+            ("PADDLE_API_KEY", ""),
+            ("PORT", "10000"),
+        ] {
+            std::env::set_var(k, v);
+        }
+        let c = Config::from_env().expect("starts without the service keys");
+        assert!(c.r2.is_none() && c.paddle.is_none() && c.gemini_key.is_none());
+        assert_eq!(c.bind, "0.0.0.0:10000");
     }
 }

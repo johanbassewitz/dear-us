@@ -383,6 +383,10 @@ const MIGRATIONS: &[&str] = &[
         created_at TEXT NOT NULL
     );
     "#,
+    // 12 — per-file recipients (e.g. only a newly linked device), NULL = all partner devices
+    r#"
+    ALTER TABLE sync_blobs ADD COLUMN recipients TEXT;
+    "#,
 ];
 
 pub fn migrate(conn: &mut Connection) -> AppResult<()> {

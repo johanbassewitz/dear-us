@@ -1,6 +1,7 @@
 # Dear Us — Architecture & Build Plan
 
 > Status: **v1.0.0 released** (2026-11-05). The live Supabase test was skipped at the owner's request; the couple's first pairing is the first real run. Releases are built by GitHub Actions with signed auto-updates; ffmpeg is a one-click download in Settings.
+> **Editions (2026-11-05):** this plan describes the **personal edition** (bring-your-own Supabase and Gemini key), which stays the default build. The **Microsoft Store edition** (`--features store`) swaps the relay for Dear Us Cloud (`cloud/`) and adds plans and purchases: see `docs/COMMERCIAL_PLAN.md` §7 and `docs/STORE_RELEASE.md`.
 > Visual reference: `dear_us_relationship_app_mockup.html` (and the Cupid concept sheet).
 > Last updated: 2026-11-03
 

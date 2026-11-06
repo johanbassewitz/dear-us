@@ -1,4 +1,7 @@
-//! Cupid's brain: Google Gemini with each person's OWN free API key (set in Settings).
+//! Cupid's brain: Google Gemini.
+//! - personal edition: each person's OWN free API key (set in Settings);
+//! - Store edition: through the Dear Us Cloud gateway with our paid key, counted in "arrows"
+//!   per couple (see cloud/src/cupid.rs). No key on the PC at all.
 //!
 //! Privacy rules (docs/PLAN.md §10):
 //! - off until the person adds a key and acknowledges the free-tier data notice;
@@ -7,6 +10,7 @@
 //!   of library questions, or date-idea filters (+ open bucket-list titles if allowed).
 //!   Never letters, capsules, journal text, photos or videos;
 //! - no scores, judgments or "relationship analysis".
+#![cfg_attr(feature = "store", allow(dead_code))]
 
 use crate::error::{AppError, AppResult};
 use crate::sync::apply::meta_set;
@@ -31,10 +35,26 @@ pub fn secret_name(device: &str) -> String {
     crate::sync::service::secret_name(device, "gemini")
 }
 
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Arrows {
+    /// What's left right now: this month's allowance + top-up arrows.
+    pub remaining: i32,
+    pub allowance: i32,
+    pub used: i32,
+    pub bonus: i32,
+    pub tier: String,
+    pub can_buy: bool,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CupidStatus {
     pub enabled: bool,
+    /// Store edition: Cupid runs through the Dear Us cloud (no personal key).
+    pub cloud: bool,
+    /// Store edition: the couple's arrows (None until the plan is known).
+    pub arrows: Option<Arrows>,
     pub has_key: bool,
     pub privacy_ack: bool,
     pub model: String,
@@ -43,13 +63,29 @@ pub struct CupidStatus {
     pub share_bucket_titles: bool,
 }
 
+#[cfg(feature = "store")]
+pub fn arrows(p: &crate::sync::cloud::Plan) -> Arrows {
+    Arrows { remaining: p.cupid_remaining, allowance: p.cupid_allowance, used: p.cupid_used, bonus: p.cupid_bonus, tier: p.tier.clone(), can_buy: p.billing_available }
+}
+
 pub fn status(conn: &Connection) -> AppResult<CupidStatus> {
-    let device = crate::sync::device_id(conn)?;
-    let has_key = crate::secrets::get(&secret_name(&device))?.is_some();
     let on = |k: &str, default: bool| -> AppResult<bool> { Ok(get(conn, k)?.map(|v| v == "1").unwrap_or(default)) };
     let privacy_ack = on("cupid.privacy_ack", false)?;
+    #[cfg(feature = "store")]
+    let (has_key, cloud, arrows) = {
+        // "has a brain" = connected to a shared space in the Dear Us cloud
+        let connected = crate::sync::service::load_config(conn)?.and_then(|c| c.space).is_some();
+        (connected, true, crate::sync::service::cached_plan(conn).map(|p| arrows(&p)))
+    };
+    #[cfg(not(feature = "store"))]
+    let (has_key, cloud, arrows) = {
+        let device = crate::sync::device_id(conn)?;
+        (crate::secrets::get(&secret_name(&device))?.is_some(), false, None)
+    };
     Ok(CupidStatus {
         enabled: has_key && privacy_ack,
+        cloud,
+        arrows,
         has_key,
         privacy_ack,
         model: get(conn, "cupid.model")?.unwrap_or_else(|| DEFAULT_MODEL.into()),

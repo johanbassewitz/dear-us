@@ -1,9 +1,11 @@
-// Auto-update: checks GitHub Releases for a newer signed version, downloads it and restarts.
-// The update is verified against the public key in tauri.conf.json before it's installed.
+// Auto-update (personal edition): checks GitHub Releases for a newer signed version, downloads it
+// and restarts. The update is verified against the public key in tauri.conf.json before it's
+// installed. The Microsoft Store edition has no self-updater: the Store updates it.
 import { useEffect } from "react";
 import { create } from "zustand";
 import { Download, X } from "lucide-react";
 import { isDesktop } from "../../lib/api";
+import { useIsStore } from "../../lib/edition";
 import { Button } from "../../components/ui/Button";
 
 type Status = "idle" | "checking" | "none" | "available" | "downloading" | "ready" | "error";
@@ -77,15 +79,16 @@ const SIX_HOURS = 6 * 60 * 60 * 1000;
 /** Checks shortly after launch, then every 6 hours while the app is open. */
 export function useAutoUpdateCheck() {
   const check = useUpdates((s) => s.check);
+  const store = useIsStore();
   useEffect(() => {
-    if (!isDesktop) return;
+    if (!isDesktop || store) return;
     const first = setTimeout(() => void check(), 8000);
     const every = setInterval(() => void check(), SIX_HOURS);
     return () => {
       clearTimeout(first);
       clearInterval(every);
     };
-  }, [check]);
+  }, [check, store]);
 }
 
 export function UpdateBanner() {
@@ -136,7 +139,14 @@ export function UpdateBanner() {
 /** The "Updates" card in Settings. */
 export function UpdateSettings({ currentVersion }: { currentVersion?: string }) {
   const { status, version, error, check, install } = useUpdates();
+  const store = useIsStore();
   if (!isDesktop) return null;
+  if (store)
+    return (
+      <p className="text-[12.5px]">
+        This PC has <b>Dear Us {currentVersion ?? "…"}</b>. The Microsoft Store keeps it up to date automatically.
+      </p>
+    );
   return (
     <div className="flex flex-col gap-3 text-[12.5px]">
       <p>

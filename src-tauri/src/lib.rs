@@ -1,4 +1,6 @@
 mod backup;
+#[cfg(feature = "store")]
+mod billing;
 mod commands;
 mod cupid;
 mod db;
@@ -56,13 +58,19 @@ fn maintenance(conn: &mut Connection, store: &media::Store) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // Remembers window size/position between launches.
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init());
+    // Personal edition: signed auto-updates from GitHub Releases. The Store edition has no
+    // self-updater: the Microsoft Store updates it.
+    #[cfg(feature = "updater")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
+    // Store edition: checkout and the subscription page open in the person's browser.
+    #[cfg(feature = "store")]
+    let builder = builder.plugin(tauri_plugin_opener::init());
+    builder
         .register_asynchronous_uri_scheme_protocol("media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             std::thread::spawn(move || responder.respond(media::protocol::handle(&app, &request)));
@@ -174,17 +182,29 @@ pub fn run() {
             commands::sync::sync_conflicts,
             commands::sync::sync_resolve_conflict,
             commands::sync::sync_set_direct,
+            commands::sync::sync_forgot_password,
+            commands::sync::sync_reset_password,
+            commands::sync::sync_create_device_link,
+            commands::sync::sync_read_device_link,
+            commands::sync::sync_link_device,
+            commands::sync::sync_delete_account,
+            commands::sync::sync_leave_space,
             commands::backup::backup_status,
             commands::backup::backup_set_folder,
             commands::backup::backup_set_auto,
             commands::backup::backup_run,
             commands::backup::backup_inspect,
             commands::backup::backup_verify,
+            commands::backup::backup_cloud_folders,
             commands::backup::archive_verify,
             commands::backup::backup_restore,
             commands::backup::bin_list,
             commands::backup::bin_restore,
             commands::backup::bin_purge,
+            commands::plan::plan_get,
+            commands::plan::billing_purchase,
+            commands::plan::billing_restore,
+            commands::plan::billing_manage,
             commands::cupid::cupid_status,
             commands::cupid::cupid_set_option,
             commands::cupid::cupid_set_key,
@@ -194,6 +214,7 @@ pub fn run() {
             commands::cupid::cupid_chat,
             commands::cupid::question_daily_smart,
             commands::cupid::cupid_date_ideas,
+            commands::cupid::cupid_report,
             mc::media_import,
             mc::media_capabilities,
             mc::media_install_converter,

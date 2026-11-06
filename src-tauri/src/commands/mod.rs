@@ -13,6 +13,8 @@ pub struct AppInfo {
     version: String,
     data_dir: String,
     schema_version: i64,
+    /// "personal" (bring-your-own Supabase, GitHub updates) or "store" (Microsoft Store).
+    edition: &'static str,
 }
 
 #[tauri::command]
@@ -23,6 +25,7 @@ pub fn app_info(state: State<AppState>, app: tauri::AppHandle) -> AppResult<AppI
         version: app.package_info().version.to_string(),
         data_dir: state.data_dir.display().to_string(),
         schema_version,
+        edition: crate::sync::backend::EDITION,
     })
 }
 
@@ -71,6 +74,7 @@ pub mod engagement;
 pub mod journal;
 pub mod letters;
 pub mod media;
+pub mod plan;
 pub mod planner;
 pub mod questions;
 pub mod special;

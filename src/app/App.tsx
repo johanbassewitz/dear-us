@@ -25,8 +25,12 @@ import { Cupid } from "../cupid/Cupid";
 import { Toasts } from "../components/ui/Toast";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorBoundary } from "../components/ui/ErrorBoundary";
-import { useSyncEvents } from "../features/sync/syncApi";
+import { useSyncEvents, useSyncStatus } from "../features/sync/syncApi";
+import { LinkingScreen } from "../features/sync/LinkDevice";
 import { UpdateBanner, useAutoUpdateCheck } from "../features/updates/updates";
+import { usePlanEvents } from "../features/plan/planApi";
+import { PlanBanner } from "../features/plan/PlanBanner";
+import { UpgradeDialog } from "../features/plan/Purchase";
 
 function Page({ page }: { page: PageId }) {
   switch (page) {
@@ -94,6 +98,7 @@ function Shell() {
   useMediaEvents();
   useReminders();
   useAutoUpdateCheck();
+  usePlanEvents();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,6 +123,7 @@ function Shell() {
       <div id="main-scroll" className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         <TopBar onSearch={() => setPaletteOpen(true)} />
         <main className="mx-auto w-full max-w-[1480px] px-10 pt-9 pb-20">
+          <PlanBanner />
           <ErrorBoundary resetKey={`${page}-${JSON.stringify(journalView)}`}>
             <Page key={page} page={page} />
           </ErrorBoundary>
@@ -127,6 +133,7 @@ function Shell() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <LeaveGuard />
       <UpdateBanner />
+      <UpgradeDialog />
     </div>
   );
 }
@@ -146,6 +153,7 @@ export function App() {
   const loadPrefs = usePrefs((s) => s.load);
   const [bootError, setBootError] = useState<string | null>(null);
   const profile = useProfile();
+  const sync = useSyncStatus();
   useSyncEvents();
 
   useEffect(() => {
@@ -174,7 +182,7 @@ export function App() {
   return (
     <>
       <PreviewBanner />
-      {profile.data?.space ? <Shell /> : <WelcomePage />}
+      {profile.data?.space ? <Shell /> : isDesktop && sync.data?.linking ? <LinkingScreen /> : <WelcomePage />}
       <Toasts />
     </>
   );

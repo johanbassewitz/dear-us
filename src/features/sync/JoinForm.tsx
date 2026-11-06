@@ -4,6 +4,8 @@ import { syncApi, syncKeys } from "./syncApi";
 import { keys, queryClient } from "../../lib/queries";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
+import { useIsStore } from "../../lib/edition";
+import { ForgotPassword } from "./ForgotPassword";
 
 /** Join the partner's space with their invite code. `needName` on a brand-new install. */
 export function JoinForm({ needName, onJoined }: { needName: boolean; onJoined?: () => void }) {
@@ -15,6 +17,7 @@ export function JoinForm({ needName, onJoined }: { needName: boolean; onJoined?:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmEmail, setConfirmEmail] = useState(false);
+  const store = useIsStore();
 
   const submit = async (createAccount: boolean) => {
     setError(null);
@@ -54,8 +57,9 @@ export function JoinForm({ needName, onJoined }: { needName: boolean; onJoined?:
       </div>
       <label className="flex items-center gap-2 text-[12px] text-ink-soft">
         <input type="checkbox" checked={!create} onChange={(e) => setCreate(!e.target.checked)} className="accent-[var(--accent)]" />
-        I already have an account in our project
+        {store ? "I already have a Dear Us account" : "I already have an account in our project"}
       </label>
+      {store && !create && <ForgotPassword initialEmail={email} />}
       {confirmEmail && (
         <div className="rounded-xl bg-gold px-4 py-3 text-[12.5px] text-ink-soft">
           Check your inbox and confirm your email, then press <b>I've confirmed, join</b>.

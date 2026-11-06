@@ -440,7 +440,7 @@ export async function previewInvoke<T>(cmd: string, args: Json = {}): Promise<T>
   const r = (v: unknown) => v as T;
   switch (cmd) {
     case "app_info":
-      return r({ version: "dev-preview", dataDir: "(browser preview: nothing saved)", schemaVersion: 2 });
+      return r({ version: "dev-preview", dataDir: "(browser preview: nothing saved)", schemaVersion: 2, edition: import.meta.env.VITE_PREVIEW_EDITION === "store" ? "store" : "personal" });
     case "settings_get_all":
       return r({ ...settings });
     case "settings_set":
@@ -852,6 +852,8 @@ export async function previewInvoke<T>(cmd: string, args: Json = {}): Promise<T>
       return r({ enabled: false, hasKey: false, privacyAck: false, model: "gemini-flash-latest", dailyQuestion: true, dateIdeas: true, shareBucketTitles: false });
     case "sync_conflicts":
       return r([]);
+    case "plan_get":
+      return r(null);
     case "open_data_dir":
       return r(undefined);
     default:

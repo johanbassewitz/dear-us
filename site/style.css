@@ -1,0 +1,30 @@
+:root {
+  --bg: #f7f3ed; --paper: #fffdf9; --ink: #2f2a2b; --muted: #6f6566; --line: #e8dfd4;
+  --accent: #a8505f; --accent-soft: #f4e3e3;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1f1a1b; --paper: #2a2425; --ink: #f1ebe6; --muted: #b9adaa; --line: #3d3536; --accent: #e08a98; --accent-soft: #3a2a2d; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); }
+header, main, footer { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+header { display: flex; align-items: center; justify-content: space-between; padding-top: 24px; padding-bottom: 8px; }
+header .brand { font: 600 26px Georgia, "Times New Roman", serif; color: var(--ink); text-decoration: none; }
+header .brand .by { display: block; font: 500 11px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+footer p { margin: 6px 0; }
+nav a { margin-left: 18px; color: var(--muted); text-decoration: none; font-size: 15px; }
+nav a:hover { color: var(--accent); }
+h1 { font: 600 clamp(32px, 6vw, 46px)/1.15 Georgia, serif; margin: 32px 0 12px; }
+h2 { font: 600 22px Georgia, serif; margin: 36px 0 8px; }
+.lead { font-size: 19px; color: var(--muted); max-width: 600px; }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; margin: 18px 0; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); margin: 28px 0; }
+.grid .card { margin: 0; }
+.grid strong { display: block; margin-bottom: 4px; }
+.button { display: inline-block; background: var(--accent); color: #fff; padding: 12px 22px; border-radius: 12px; text-decoration: none; font-weight: 600; margin-top: 18px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.muted { color: var(--muted); font-size: 14px; }
+footer { color: var(--muted); font-size: 14px; padding-top: 30px; padding-bottom: 40px; border-top: 1px solid var(--line); margin-top: 50px; }

@@ -1,3 +1,4 @@
+import { quotaError } from "../plan/planApi";
 import { useCallback, useRef, useState } from "react";
 import { ImagePlus, Lock, X } from "lucide-react";
 import { api, type LetterDetail, type LetterInput, type LetterKind, type MediaRef } from "../../lib/api";
@@ -95,7 +96,7 @@ export function LetterEditor({ draft, defaultKind = "letter", onClose }: Props) 
       onClose();
     } catch (e) {
       invalidateLetters();
-      setError(String(e));
+      setError(quotaError(e).message);
     } finally {
       setSending(false);
     }

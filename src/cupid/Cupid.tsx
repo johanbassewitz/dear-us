@@ -157,7 +157,7 @@ export function Cupid() {
                 if (cupid?.enabled) setChatOpen(true);
                 else {
                   go("settings");
-                  toast("Add your own free Gemini key in Settings → Cupid's brain, and Cupid can chat ♡");
+                  toast(cupid?.cloud ? "Turn Cupid on in Settings → Cupid's brain, and he can chat ♡" : "Add your own free Gemini key in Settings → Cupid's brain, and Cupid can chat ♡");
                 }
               }}
             >

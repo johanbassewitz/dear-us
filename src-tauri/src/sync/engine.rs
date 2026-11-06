@@ -26,7 +26,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Mutex;
 
 pub const DEFAULT_CHUNK: i64 = 8 * 1024 * 1024;
-/// Stay well under Supabase's free 1 GB storage.
+/// Stay well under Supabase's free 1 GB storage (personal edition).
+#[cfg_attr(feature = "store", allow(dead_code))]
 pub const DEFAULT_QUOTA_CAP: i64 = 700 * 1024 * 1024;
 const OPS_PER_ENVELOPE: i64 = 300;
 /// How long a file waits for a direct transfer before it goes through the cloud anyway.
@@ -53,6 +54,8 @@ pub struct Report {
     pub downloaded_files: usize,
     pub waiting_for_partner_device: bool,
     pub waiting_for_space: bool,
+    /// A newly linked device still waiting for the snapshot from the person's other device.
+    pub waiting_for_link: bool,
     pub errors: Vec<String>,
     /// Media ids that became available (or changed) locally.
     pub media_ready: Vec<String>,
@@ -313,20 +316,33 @@ impl Ctx<'_> {
 
     fn upload(&self, partners: &[String], r: &mut Report) {
         let direct_peer = self.direct.and_then(|d| d.reachable());
-        let rows: Vec<(String, String, i64, i64, i64, String, Option<String>)> = {
+        #[allow(clippy::type_complexity)]
+        let rows: Vec<(String, String, i64, i64, i64, String, Option<String>, Option<String>)> = {
             let conn = self.db.lock().unwrap();
             let mut s = match conn.prepare(
-                "SELECT hash, media_id, size, chunk_count, chunks_done, state, direct_since FROM sync_blobs
+                "SELECT hash, media_id, size, chunk_count, chunks_done, state, direct_since, recipients FROM sync_blobs
                  WHERE direction = 'up' AND state IN ('queued','active','done') ORDER BY updated_at",
             ) {
                 Ok(s) => s,
                 Err(e) => return r.errors.push(e.to_string()),
             };
-            s.query_map([], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?, x.get(5)?, x.get(6)?)))
+            s.query_map([], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?, x.get(5)?, x.get(6)?, x.get(7)?)))
                 .and_then(|m| m.collect())
                 .unwrap_or_default()
         };
-        for (hash, media_id, size, count, done, state, direct_since) in rows {
+        let all_partners = partners;
+        for (hash, media_id, size, count, done, state, direct_since, recipients) in rows {
+            // A file meant only for some devices (e.g. a newly linked one) goes only to those
+            // that are still active.
+            let to: Vec<String> = match recipients.as_deref().and_then(|j| serde_json::from_str::<Vec<String>>(j).ok()) {
+                Some(list) => list.into_iter().filter(|d| all_partners.contains(d)).collect(),
+                None => all_partners.to_vec(),
+            };
+            if to.is_empty() {
+                let _ = self.set_blob(&hash, "up", "delivered", None, None);
+                continue;
+            }
+            let partners: &[String] = &to;
             let res = (|| -> AppResult<()> {
                 if state == "done" {
                     if self.relay.blob_delivered(&hash)? && self.relay.cleanup_blob(&hash)? {
@@ -340,7 +356,11 @@ impl Ctx<'_> {
                     .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
                     .map(|t| chrono::Utc::now().signed_duration_since(t) < chrono::Duration::minutes(DIRECT_GRACE_MINUTES))
                     .unwrap_or(true);
-                if done == 0 && in_grace && (direct_peer.is_some() || direct_since.is_some()) {
+                // When the cloud allowance is used up, files keep going over the home network
+                // whenever the partner's PC is reachable (free tier: unlimited Wi-Fi sync).
+                let go_direct = in_grace && (direct_peer.is_some() || direct_since.is_some())
+                    || direct_peer.is_some() && self.relay.used_bytes()? + size > self.quota_cap;
+                if done == 0 && go_direct {
                     self.relay.put_blob_meta(
                         &BlobMeta { hash: hash.clone(), size, chunk_size: self.chunk_size, chunk_count: count, sender_device: self.device.clone() },
                         partners,

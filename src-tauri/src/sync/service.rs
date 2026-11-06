@@ -4,9 +4,11 @@
 
 use super::apply::meta_set;
 use super::crypto::SpaceKey;
-use super::engine::{counts, Counts, Ctx, Report, DEFAULT_CHUNK, DEFAULT_QUOTA_CAP};
+use super::engine::{counts, Counts, Ctx, Report, DEFAULT_CHUNK};
+#[cfg(not(feature = "store"))]
+use super::engine::DEFAULT_QUOTA_CAP;
 use super::relay::Relay;
-use super::supabase::{self, SupabaseRelay};
+use super::backend::{self, AccountRelay};
 use crate::error::{AppError, AppResult};
 use crate::secrets;
 use crate::AppState;
@@ -111,6 +113,11 @@ pub struct Status {
     pub direct_enabled: bool,
     /// The partner's PC is reachable on this network right now.
     pub direct_peer: bool,
+    /// A newly linked device waiting for its snapshot from the person's other device.
+    pub linking: bool,
+    /// Store edition: the couple's plan (trial / premium / free), last known.
+    #[cfg(feature = "store")]
+    pub plan: Option<super::cloud::Plan>,
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -142,7 +149,7 @@ pub struct SyncService {
     server_port: Mutex<Option<u16>>,
     published: Mutex<Option<String>>,
     pub status: Mutex<Status>,
-    relay: Mutex<Option<Arc<SupabaseRelay>>>,
+    relay: Mutex<Option<Arc<AccountRelay>>>,
 }
 
 impl SyncService {
@@ -153,7 +160,7 @@ impl SyncService {
     pub fn reset(&self) {
         *self.relay.lock().unwrap() = None;
     }
-    pub fn set_relay(&self, r: Arc<SupabaseRelay>) {
+    pub fn set_relay(&self, r: Arc<AccountRelay>) {
         *self.relay.lock().unwrap() = Some(r);
     }
 }
@@ -163,7 +170,7 @@ pub fn device_name() -> String {
 }
 
 /// Connection to the relay for this install, from saved settings + saved sign-in.
-pub fn connect(app: &AppHandle) -> AppResult<Arc<SupabaseRelay>> {
+pub fn connect(app: &AppHandle) -> AppResult<Arc<AccountRelay>> {
     let svc = app.state::<SyncService>();
     if let Some(r) = svc.relay.lock().unwrap().clone() {
         return Ok(r);
@@ -176,7 +183,7 @@ pub fn connect(app: &AppHandle) -> AppResult<Arc<SupabaseRelay>> {
     let cfg = cfg.ok_or_else(|| AppError::invalid("sync isn't set up"))?;
     let space = cfg.space.ok_or_else(|| AppError::invalid("not connected to a space yet"))?;
     let token = secrets::get(&secret_name(&device, "refresh"))?.ok_or_else(|| AppError::invalid("signed-out: please sign in to sync again"))?;
-    let r = Arc::new(SupabaseRelay::from_refresh(&cfg.url, &cfg.anon, &space, &token, refresh_saver(&device))?);
+    let r = Arc::new(AccountRelay::from_refresh(&cfg.url, &cfg.anon, &space, &token, refresh_saver(&device))?);
     svc.set_relay(r.clone());
     Ok(r)
 }
@@ -198,6 +205,9 @@ fn base_status(app: &AppHandle) -> AppResult<Status> {
         counts: counts(&conn)?.into(),
         this_device: device,
         direct_enabled: direct_enabled(&conn),
+        linking: super::bootstrap::pending(&conn),
+        #[cfg(feature = "store")]
+        plan: cached_plan(&conn),
         ..Default::default()
     })
 }
@@ -220,12 +230,65 @@ pub fn run_once(app: &AppHandle) -> AppResult<Option<Report>> {
         key: &key,
         device: st.this_device.clone(),
         chunk_size: DEFAULT_CHUNK,
-        quota_cap: DEFAULT_QUOTA_CAP,
+        quota_cap: quota_cap(app, relay.as_ref()),
     };
-    let report = ctx.sync_once()?;
-    let conn = state.db.lock().unwrap();
-    meta_set(&conn, "sync.last_ok", &crate::db::now_iso())?;
+    // A newly linked device first takes in the snapshot from the person's other device.
+    let mut fresh = false;
+    if super::bootstrap::pending(&state.db.lock().unwrap()) {
+        if !super::bootstrap::receive(&ctx)? {
+            return Ok(Some(Report { waiting_for_link: true, ..Default::default() }));
+        }
+        fresh = true;
+    }
+    let mut report = ctx.sync_once()?;
+    report.changed |= fresh;
+    // ...and a device that made a link code brings the new one up to date.
+    if let Err(e) = super::bootstrap::serve_new_devices(&ctx, &relay.user_id()) {
+        report.errors.push(format!("Couldn't send your memories to your new device yet: {e}"));
+    }
+    {
+        let conn = state.db.lock().unwrap();
+        meta_set(&conn, "sync.last_ok", &crate::db::now_iso())?;
+    }
+    #[cfg(feature = "store")]
+    crate::commands::plan::daily_billing_check(app);
     Ok(Some(report))
+}
+
+/// How many bytes may wait in the cloud. Personal edition: stay under Supabase's free 1 GB.
+/// Store edition: the plan's monthly media allowance (the server enforces it too).
+#[cfg(not(feature = "store"))]
+fn quota_cap(_app: &AppHandle, _relay: &AccountRelay) -> i64 {
+    DEFAULT_QUOTA_CAP
+}
+
+#[cfg(feature = "store")]
+fn quota_cap(app: &AppHandle, relay: &AccountRelay) -> i64 {
+    let state = app.state::<AppState>();
+    match relay.plan() {
+        Ok(p) => {
+            let _ = save_plan(&state.db.lock().unwrap(), &p);
+            p.engine_cap()
+        }
+        Err(_) => cached_plan(&state.db.lock().unwrap()).map(|p| p.engine_cap()).unwrap_or(i64::MAX / 4),
+    }
+}
+
+#[cfg(feature = "store")]
+pub fn cached_plan(conn: &Connection) -> Option<super::cloud::Plan> {
+    get(conn, "plan.cache").ok().flatten().and_then(|v| serde_json::from_str(&v).ok())
+}
+
+#[cfg(feature = "store")]
+pub fn save_plan(conn: &Connection, p: &super::cloud::Plan) -> AppResult<()> {
+    // stored in the server's shape, so it reads back with the same Deserialize
+    let v = serde_json::json!({
+        "tier": p.tier, "trial_ends_at": p.trial_ends_at, "premium_until": p.premium_until, "period": p.period,
+        "media_cap_bytes": p.media_cap_bytes, "media_used_bytes": p.media_used_bytes, "cupid_allowance": p.cupid_allowance,
+        "cupid_used": p.cupid_used, "cupid_bonus": p.cupid_bonus, "cupid_remaining": p.cupid_remaining, "capsule_limit": p.capsule_limit,
+        "billing_available": p.billing_available, "billing_provider": p.billing_provider,
+    });
+    meta_set(conn, "plan.cache", &v.to_string())
 }
 
 pub fn direct_enabled(conn: &Connection) -> bool {
@@ -301,7 +364,9 @@ pub fn refresh_status(app: &AppHandle, outcome: Option<&AppResult<Option<Report>
     let prev = svc.status.lock().unwrap().clone();
     match outcome {
         Some(Ok(Some(r))) => {
-            st.state = if r.waiting_for_partner_device {
+            st.state = if r.waiting_for_link {
+                "linking".into()
+            } else if r.waiting_for_partner_device {
                 "waiting_for_partner".into()
             } else if r.waiting_for_space {
                 "waiting_for_space".into()
@@ -317,7 +382,7 @@ pub fn refresh_status(app: &AppHandle, outcome: Option<&AppResult<Option<Report>
         Some(Ok(None)) => {}
         Some(Err(e)) => {
             st.last_error = Some(e.to_string());
-            st.state = if supabase::is_offline(e) {
+            st.state = if backend::is_offline(e) {
                 "offline".into()
             } else if e.to_string().starts_with("signed-out") {
                 "signed_out".into()

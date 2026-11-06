@@ -12,3 +12,4 @@ cupid_transparent_sprites.zip
 *.key
 *.key.password
 .env*
+dist-msix/

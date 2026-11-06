@@ -33,6 +33,14 @@ impl Peer {
         let store = Store::new(dir.path()).unwrap();
         Peer { dir, db: Mutex::new(conn), store, device }
     }
+    /// A brand-new install with nothing in it yet (a newly linked device).
+    fn blank() -> Peer {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("t.db")).unwrap();
+        let device = super::device_id(&conn).unwrap();
+        let store = Store::new(dir.path()).unwrap();
+        Peer { dir, db: Mutex::new(conn), store, device }
+    }
     fn me(&self) -> String {
         super::identity::my_user_id(&self.db.lock().unwrap()).unwrap().unwrap()
     }
@@ -479,4 +487,212 @@ fn if_the_partner_never_shows_up_directly_the_cloud_takes_over() {
     assert_eq!(b.s(&relay, &key).downloaded_files, 1);
     let row = crate::db::repo::media::get(&b.db.lock().unwrap(), &pid).unwrap().unwrap();
     assert_eq!(std::fs::read(b.store.original(&row.hash, &row.ext)).unwrap(), bytes);
+}
+
+#[test]
+fn when_the_cloud_allowance_is_used_up_files_still_go_over_the_home_network() {
+    let (relay, key, a, b) = pair();
+    let (pid, bytes) = a.photo("capped.png", (400, 300));
+    a.entry("Capped", "x", vec![pid.clone()]);
+    let chunk = 4096;
+    let b_ep = serve_for(&b, &key, chunk);
+    let a_ep = serve_for(&a, &key, chunk);
+    let to_b = super::direct::DirectClient::new(key.clone(), [(b.device.clone(), b_ep)].into_iter().collect());
+    let to_a = super::direct::DirectClient::new(key.clone(), [(a.device.clone(), a_ep)].into_iter().collect());
+    // free tier, nothing left this month; the direct grace period is long over
+    let ctx_a = Ctx { db: &a.db, direct: Some(&to_b), store: &a.store, relay: &relay, key: &key, device: a.device.clone(), chunk_size: chunk, quota_cap: 0 };
+    let ctx_b = Ctx { db: &b.db, direct: Some(&to_a), store: &b.store, relay: &relay, key: &key, device: b.device.clone(), chunk_size: chunk, quota_cap: 0 };
+    ctx_a.sync_once().unwrap();
+    a.db.lock().unwrap().execute("UPDATE sync_blobs SET direct_since = '2000-01-01T00:00:00Z'", []).unwrap();
+    let r = ctx_a.sync_once().unwrap();
+    assert!(!r.waiting_for_space, "{r:?}");
+    assert!(relay.0.lock().unwrap().chunks.is_empty(), "nothing uploaded to the cloud");
+    assert_eq!(ctx_b.sync_once().unwrap().downloaded_files, 1);
+    let row = crate::db::repo::media::get(&b.db.lock().unwrap(), &pid).unwrap().unwrap();
+    assert_eq!(std::fs::read(b.store.original(&row.hash, &row.ext)).unwrap(), bytes);
+    // away from home it waits (safely) instead
+    let (pid2, _) = a.photo("later.png", (200, 100));
+    a.entry("Later", "x", vec![pid2]);
+    let away = Ctx { direct: None, ..ctx_a };
+    away.sync_once().unwrap();
+    a.db.lock().unwrap().execute("UPDATE sync_blobs SET direct_since = '2000-01-01T00:00:00Z' WHERE state = 'queued'", []).unwrap();
+    assert!(away.sync_once().unwrap().waiting_for_space);
+}
+
+/// The real sync engine, two PCs, through a running Dear Us Cloud server (Store edition):
+///   DEARUS_CLOUD_TEST_URL=http://127.0.0.1:8080 cargo test --no-default-features --features store cloud_engine -- --ignored
+#[cfg(feature = "store")]
+#[test]
+#[ignore]
+fn cloud_engine_memory_with_photo_travels_and_the_mailbox_empties() {
+    use super::cloud::{redeem_invite, sign_up, CloudRelay};
+    let url = std::env::var("DEARUS_CLOUD_TEST_URL").expect("DEARUS_CLOUD_TEST_URL");
+    let a = Peer::new("Jo", "Sam");
+    let b = Peer::new("Sam", "Jo");
+    let key = SpaceKey::generate();
+    let email = |n: &str| format!("{n}-{}@engine.dearus", uuid::Uuid::now_v7());
+    let sa = sign_up(&url, "", &email("jo"), "password-jo").unwrap().unwrap();
+    let sb = sign_up(&url, "", &email("sam"), "password-sam").unwrap().unwrap();
+    let space = uuid::Uuid::now_v7().to_string();
+    let ra = CloudRelay::new(&url, "", &space, sa, Box::new(|_| {}));
+    ra.create_space().unwrap();
+    ra.register_device(&a.device, "Jo's PC").unwrap();
+    let secret = format!("engine-{space}");
+    ra.create_invite(&super::crypto::sha256_hex(&secret)).unwrap();
+    redeem_invite(&url, "", &sb, &secret).unwrap();
+    let rb = CloudRelay::new(&url, "", &space, sb, Box::new(|_| {}));
+    rb.register_device(&b.device, "Sam's PC").unwrap();
+
+    let run = |p: &Peer, relay: &CloudRelay| {
+        Ctx { db: &p.db, direct: None, store: &p.store, relay, key: &key, device: p.device.clone(), chunk_size: 64 * 1024, quota_cap: ra.plan().unwrap().engine_cap() }
+            .sync_once()
+            .unwrap()
+    };
+    let (pid, bytes) = a.photo("cloud.png", (900, 700));
+    let id = a.entry("Through the cloud", "Sealed on Jo's PC", vec![pid.clone()]);
+    let r1 = run(&a, &ra);
+    assert!(r1.sent_ops > 0 && r1.uploaded_files == 1, "{r1:?}");
+    let r2 = run(&b, &rb);
+    assert!(r2.received_ops > 0 && r2.downloaded_files == 1, "{r2:?}");
+    assert_eq!(b.get(&id).summary.title, "Through the cloud");
+    let row = crate::db::repo::media::get(&b.db.lock().unwrap(), &pid).unwrap().unwrap();
+    assert_eq!(std::fs::read(b.store.original(&row.hash, &row.ext)).unwrap(), bytes, "byte-identical");
+    // confirmations travel back; both sides clean up
+    run(&a, &ra);
+    run(&b, &rb);
+    run(&a, &ra);
+    assert!(rb.fetch_envelopes(&b.device, 0, 100).unwrap().is_empty(), "Sam's mailbox emptied");
+    assert!(ra.fetch_envelopes(&a.device, 0, 100).unwrap().is_empty(), "Jo's mailbox emptied");
+    assert!(ra.blob_meta(&row.hash).unwrap().is_none(), "file removed from the cloud");
+    assert_eq!(ra.plan().unwrap().tier, "trial");
+}
+
+#[test]
+fn a_newly_linked_device_of_mine_gets_everything_and_then_syncs_like_the_others() {
+    let (relay, key, a, b) = pair();
+    let (pid, bytes) = a.photo("before.png", (500, 400));
+    let id = a.entry("Before the phone", "Jo wrote this", vec![pid.clone()]);
+    let from_sam = b.entry("Sam's note", "hello", vec![]);
+    a.s(&relay, &key);
+    b.s(&relay, &key);
+    a.s(&relay, &key);
+    b.s(&relay, &key);
+    assert!(relay_empty(&relay));
+    fn ctx<'a>(p: &'a Peer, relay: &'a MemoryRelay, key: &'a SpaceKey) -> Ctx<'a> {
+        Ctx { db: &p.db, direct: None, store: &p.store, relay, key, device: p.device.clone(), chunk_size: 64 * 1024, quota_cap: i64::MAX }
+    }
+    let ctx = |p| ctx(p, &relay, &key);
+
+    // Jo makes a link code on PC A; the devices that exist now need nothing
+    super::bootstrap::mark_link_created(&a.db.lock().unwrap()).unwrap();
+    super::bootstrap::remember_devices(&a.db.lock().unwrap(), &[a.device.clone(), b.device.clone()]).unwrap();
+    // the new device signs in with Jo's account and registers
+    let n = Peer::blank();
+    super::bootstrap::mark_pending(&n.db.lock().unwrap(), &a.device).unwrap();
+    relay.0.lock().unwrap().devices.push(Device { id: n.device.clone(), user_id: "ua".into(), name: "Jo's phone".into(), revoked: false, endpoint: None });
+    assert!(!super::bootstrap::receive(&ctx(&n)).unwrap(), "nothing sent yet");
+
+    // PC A notices it and sends one snapshot (Sam's PC doesn't: it's not Sam's device)
+    assert_eq!(super::bootstrap::serve_new_devices(&ctx(&b), "ub").unwrap(), 0);
+    assert_eq!(super::bootstrap::serve_new_devices(&ctx(&a), "ua").unwrap(), 1);
+    assert_eq!(super::bootstrap::serve_new_devices(&ctx(&a), "ua").unwrap(), 0, "only once");
+
+    assert!(super::bootstrap::receive(&ctx(&n)).unwrap());
+    assert!(!super::bootstrap::pending(&n.db.lock().unwrap()));
+    assert_eq!(n.get(&id).summary.title, "Before the phone");
+    assert_eq!(n.get(&from_sam).summary.title, "Sam's note", "the partner's memories come along too");
+    assert_eq!(n.me(), a.me(), "the same person, not a third one");
+    // photos follow as files, only to the new device
+    ctx(&a).sync_once().unwrap();
+    assert_eq!(ctx(&n).sync_once().unwrap().downloaded_files, 1);
+    let row = crate::db::repo::media::get(&n.db.lock().unwrap(), &pid).unwrap().unwrap();
+    assert_eq!(std::fs::read(n.store.original(&row.hash, &row.ext)).unwrap(), bytes, "byte-identical");
+    ctx(&a).sync_once().unwrap();
+    assert!(relay.0.lock().unwrap().blobs.is_empty(), "files cleaned from the cloud once delivered");
+
+    // from now on all three stay in sync
+    b.edit(&from_sam, |i| i.title = "Sam's note, edited".into());
+    b.s(&relay, &key);
+    ctx(&n).sync_once().unwrap();
+    assert_eq!(n.get(&from_sam).summary.title, "Sam's note, edited");
+    n.edit(&id, |i| i.title = "Written on the phone".into());
+    ctx(&n).sync_once().unwrap();
+    a.s(&relay, &key);
+    b.s(&relay, &key);
+    assert_eq!(a.get(&id).summary.title, "Written on the phone", "the new device's edits win as usual");
+    assert_eq!(b.get(&id).summary.title, "Written on the phone");
+}
+
+/// Linking a second device of the same person through a running Dear Us Cloud server:
+///   DEARUS_CLOUD_TEST_URL=http://127.0.0.1:8080 cargo test --no-default-features --features store cloud_link -- --ignored
+#[cfg(feature = "store")]
+#[test]
+#[ignore]
+fn cloud_link_a_second_device_of_mine_through_the_real_server() {
+    use super::cloud::{redeem_invite, sign_in, sign_up, CloudRelay};
+    let url = std::env::var("DEARUS_CLOUD_TEST_URL").expect("DEARUS_CLOUD_TEST_URL");
+    let a = Peer::new("Jo", "Sam");
+    let b = Peer::new("Sam", "Jo");
+    let key = SpaceKey::generate();
+    let jo = format!("jo-{}@link.dearus", uuid::Uuid::now_v7());
+    let sa = sign_up(&url, "", &jo, "password-jo").unwrap().unwrap();
+    let sb = sign_up(&url, "", &format!("sam-{}@link.dearus", uuid::Uuid::now_v7()), "password-sam").unwrap().unwrap();
+    let space = uuid::Uuid::now_v7().to_string();
+    let ra = CloudRelay::new(&url, "", &space, sa, Box::new(|_| {}));
+    ra.create_space().unwrap();
+    ra.register_device(&a.device, "Jo's PC").unwrap();
+    let secret = format!("pair-{space}");
+    ra.create_invite(&super::crypto::sha256_hex(&secret)).unwrap();
+    redeem_invite(&url, "", &sb, &secret).unwrap();
+    let rb = CloudRelay::new(&url, "", &space, sb, Box::new(|_| {}));
+    rb.register_device(&b.device, "Sam's PC").unwrap();
+    let run = |p: &Peer, relay: &CloudRelay| Ctx { db: &p.db, direct: None, store: &p.store, relay, key: &key, device: p.device.clone(), chunk_size: 64 * 1024, quota_cap: i64::MAX }.sync_once().unwrap();
+    let (pid, bytes) = a.photo("linked.png", (600, 400));
+    let id = a.entry("Shared before the link", "x", vec![pid.clone()]);
+    run(&a, &ra);
+    run(&b, &rb);
+    run(&a, &ra);
+
+    // Jo links a second device: link code on PC A, then the same account signs in on the new one
+    let link = format!("link-{space}");
+    ra.create_device_link(&super::crypto::sha256_hex(&link)).unwrap();
+    super::bootstrap::remember_devices(&a.db.lock().unwrap(), &[a.device.clone(), b.device.clone()]).unwrap();
+    super::bootstrap::mark_link_created(&a.db.lock().unwrap()).unwrap();
+    let n = Peer::blank();
+    let sn = sign_in(&url, "", &jo, "password-jo").unwrap();
+    assert_eq!(redeem_invite(&url, "", &sn, &link).unwrap(), space);
+    let rn = CloudRelay::new(&url, "", &space, sn, Box::new(|_| {}));
+    rn.register_device(&n.device, "Jo's laptop").unwrap();
+    super::bootstrap::mark_pending(&n.db.lock().unwrap(), "Jo's PC").unwrap();
+
+    let ctx_a = Ctx { db: &a.db, direct: None, store: &a.store, relay: &ra, key: &key, device: a.device.clone(), chunk_size: 64 * 1024, quota_cap: i64::MAX };
+    assert_eq!(super::bootstrap::serve_new_devices(&ctx_a, &ra.user_id()).unwrap(), 1);
+    let ctx_n = Ctx { db: &n.db, direct: None, store: &n.store, relay: &rn, key: &key, device: n.device.clone(), chunk_size: 64 * 1024, quota_cap: i64::MAX };
+    assert!(super::bootstrap::receive(&ctx_n).unwrap());
+    assert_eq!(n.get(&id).summary.title, "Shared before the link");
+    run(&a, &ra);
+    assert_eq!(run(&n, &rn).downloaded_files, 1);
+    let row = crate::db::repo::media::get(&n.db.lock().unwrap(), &pid).unwrap().unwrap();
+    assert_eq!(std::fs::read(n.store.original(&row.hash, &row.ext)).unwrap(), bytes);
+    // still a couple, now with three devices that all sync
+    n.edit(&id, |i| i.title = "Edited on the laptop".into());
+    run(&n, &rn);
+    run(&b, &rb);
+    assert_eq!(b.get(&id).summary.title, "Edited on the laptop");
+    assert_eq!(ra.devices().unwrap().len(), 3);
+}
+
+#[test]
+fn linking_is_only_for_a_device_with_nothing_written_yet() {
+    // onboarding made a name and a space, nothing else: fine, and replaced
+    let fresh = Peer::new("Jo", "Sam");
+    super::bootstrap::ensure_fresh(&fresh.db.lock().unwrap()).unwrap();
+    super::bootstrap::clear_empty_profile(&fresh.db.lock().unwrap()).unwrap();
+    let users: i64 = fresh.db.lock().unwrap().query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+    assert_eq!(users, 0);
+    // a device with a memory: refused, nothing touched
+    let used = Peer::new("Jo", "Sam");
+    used.entry("Mine", "x", vec![]);
+    assert!(super::bootstrap::clear_empty_profile(&used.db.lock().unwrap()).is_err());
+    assert_eq!(used.titles(), vec!["Mine"]);
 }

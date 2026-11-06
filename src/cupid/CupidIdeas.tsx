@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Loader, Plus, Sparkles } from "lucide-react";
-import { cupidApi, useCupidStatus } from "./cupidApi";
+import { cupidApi, cupidKeys, useCupidStatus } from "./cupidApi";
 import { api, type IdeaInput } from "../lib/api";
-import { invalidatePlanner } from "../lib/queries";
+import { invalidatePlanner, queryClient } from "../lib/queries";
+import { quotaError } from "../features/plan/planApi";
 import { Button } from "../components/ui/Button";
 import { toast, toastError } from "../components/ui/Toast";
 
@@ -17,8 +18,9 @@ export function CupidIdeas({ filters }: { filters: Record<string, string> }) {
     try {
       setIdeas(await cupidApi.dateIdeas(Object.fromEntries(Object.entries(filters).filter(([, v]) => v))));
     } catch (e) {
-      toastError(String(e));
+      toastError(quotaError(e).message);
     } finally {
+      queryClient.invalidateQueries({ queryKey: cupidKeys.status });
       setBusy(false);
     }
   };

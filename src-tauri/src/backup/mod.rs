@@ -12,6 +12,10 @@
 //! Restoring never overwrites what's already on this PC: it adds what's missing.
 //! Secrets (sync sign-in, space key) are never in a backup.
 
+// encrypted backups for the Store edition (personal-edition backups are unchanged)
+#[cfg_attr(not(feature = "store"), allow(dead_code))]
+pub mod sealed;
+
 use crate::db::now_iso;
 use crate::error::{AppError, AppResult};
 use crate::media::Store;
@@ -336,64 +340,13 @@ pub fn restore(db: &Mutex<Connection>, store: &Store, chosen: &Path, progress: &
     // 2) rows: insert only what's missing, column by column for older backups
     {
         let mut conn = db.lock().unwrap();
-        let snap = dir.join(&m.db_file);
-        conn.execute("ATTACH DATABASE ?1 AS bak", [snap.to_string_lossy()])?;
-        let res = (|| -> AppResult<()> {
-            let tx = conn.transaction()?;
-            let tables: Vec<String> = {
-                let mut s = tx.prepare("SELECT name FROM bak.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%fts%'")?;
-                let r = s.query_map([], |r| r.get(0))?;
-                r.collect::<Result<_, _>>()?
-            };
-            // parents before children (foreign keys)
-            let order = ["users", "space", "media", "journal_entries"];
-            let mut sorted = tables.clone();
-            sorted.sort_by_key(|t| order.iter().position(|o| o == t).unwrap_or(order.len()));
-            for t in sorted.iter().filter(|t| !LOCAL_ONLY.contains(&t.as_str())) {
-                let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?1)", [t], |r| r.get(0))?;
-                if !exists {
-                    continue;
-                }
-                let cols = |schema: &str| -> AppResult<Vec<String>> {
-                    let mut s = tx.prepare(&format!("PRAGMA {schema}.table_info(\"{t}\")"))?;
-                    let r = s.query_map([], |r| r.get::<_, String>(1))?;
-                    Ok(r.collect::<Result<_, _>>()?)
-                };
-                let main_cols = cols("main")?;
-                let common: Vec<String> = cols("bak")?.into_iter().filter(|c| main_cols.contains(c)).map(|c| format!("\"{c}\"")).collect();
-                if common.is_empty() {
-                    continue;
-                }
-                let list = common.join(",");
-                // a restored photo row is only "here" if its file made it
-                let extra = if t == "media" { " WHERE availability = 'local'" } else { "" };
-                let n = tx.execute(&format!("INSERT OR IGNORE INTO main.\"{t}\"({list}) SELECT {list} FROM bak.\"{t}\"{extra}"), [])?;
-                if t == "media" {
-                    // files that were missing/damaged in the backup: honest placeholder, not "local"
-                    for f in m.media.iter().filter(|f| (v.missing.contains(&f.hash) || v.damaged.contains(&f.hash)) && !store.original(&f.hash, &f.ext).exists()) {
-                        tx.execute("UPDATE main.media SET availability = 'missing', has_thumb = 0 WHERE hash = ?1", [&f.hash])?;
-                    }
-                }
-                if n > 0 {
-                    report.tables.push((t.clone(), n as i64));
-                    report.added_rows += n as i64;
-                }
-            }
-            // search index for everything that's live
-            tx.execute("DELETE FROM journal_fts", [])?;
-            let mut s = tx.prepare("SELECT id, title, body_text, tags_json, COALESCE(location,'') FROM journal_entries WHERE deleted_at IS NULL")?;
-            let rows: Vec<(String, String, String, String, String)> =
-                s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect::<Result<_, _>>()?;
-            drop(s);
-            for (id, title, body, tags, loc) in rows {
-                let tags: Vec<String> = serde_json::from_str(&tags).unwrap_or_default();
-                tx.execute("INSERT INTO journal_fts(entry_id, title, body, tags, location) VALUES (?1,?2,?3,?4,?5)", params![id, title, body, tags.join(" "), loc])?;
-            }
-            tx.commit()?;
-            Ok(())
-        })();
-        conn.execute("DETACH DATABASE bak", [])?;
-        res?;
+        let tables = merge_snapshot(&mut conn, &dir.join(&m.db_file), MediaRows::WithFile)?;
+        // files that were missing/damaged in the backup: honest placeholder, not "local"
+        for f in m.media.iter().filter(|f| (v.missing.contains(&f.hash) || v.damaged.contains(&f.hash)) && !store.original(&f.hash, &f.ext).exists()) {
+            conn.execute("UPDATE media SET availability = 'missing', has_thumb = 0 WHERE hash = ?1", [&f.hash])?;
+        }
+        report.added_rows = tables.iter().map(|(_, n)| n).sum();
+        report.tables = tables;
     }
 
     // 3) thumbnails come along (regenerated later if missing)
@@ -407,6 +360,78 @@ pub fn restore(db: &Mutex<Connection>, store: &Store, chosen: &Path, progress: &
     }
     progress(total, total);
     Ok(report)
+}
+
+/// Which photo rows to take from a snapshot.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MediaRows {
+    /// Only photos whose file came along (a backup restore).
+    WithFile,
+    /// Every photo; the files follow by sync (a newly linked device).
+    All,
+}
+
+/// Adds the rows of a snapshot database that this PC doesn't have yet: never overwrites or
+/// deletes. Rows keep their per-field clocks, so later changes merge exactly as usual.
+/// Returns (table, rows added).
+pub fn merge_snapshot(conn: &mut Connection, snap: &Path, media_rows: MediaRows) -> AppResult<Vec<(String, i64)>> {
+    let mut added = Vec::new();
+    conn.execute("ATTACH DATABASE ?1 AS bak", [snap.to_string_lossy()])?;
+    let res = (|| -> AppResult<()> {
+        let tx = conn.transaction()?;
+        let tables: Vec<String> = {
+            let mut s = tx.prepare("SELECT name FROM bak.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%fts%'")?;
+            let r = s.query_map([], |r| r.get(0))?;
+            r.collect::<Result<_, _>>()?
+        };
+        // parents before children (foreign keys)
+        let order = ["users", "space", "media", "journal_entries"];
+        let mut sorted = tables.clone();
+        sorted.sort_by_key(|t| order.iter().position(|o| o == t).unwrap_or(order.len()));
+        for t in sorted.iter().filter(|t| !LOCAL_ONLY.contains(&t.as_str())) {
+            let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?1)", [t], |r| r.get(0))?;
+            if !exists {
+                continue;
+            }
+            let cols = |schema: &str| -> AppResult<Vec<String>> {
+                let mut s = tx.prepare(&format!("PRAGMA {schema}.table_info(\"{t}\")"))?;
+                let r = s.query_map([], |r| r.get::<_, String>(1))?;
+                Ok(r.collect::<Result<_, _>>()?)
+            };
+            let main_cols = cols("main")?;
+            let common: Vec<String> = cols("bak")?.into_iter().filter(|c| main_cols.contains(c)).map(|c| format!("\"{c}\"")).collect();
+            if common.is_empty() {
+                continue;
+            }
+            let list = common.join(",");
+            // a restored photo row is only "here" if its file made it
+            let extra = if t == "media" && media_rows == MediaRows::WithFile { " WHERE availability = 'local'" } else { "" };
+            let n = tx.execute(&format!("INSERT OR IGNORE INTO main.\"{t}\"({list}) SELECT {list} FROM bak.\"{t}\"{extra}"), [])?;
+            if n > 0 {
+                added.push((t.clone(), n as i64));
+            }
+        }
+        // search index for everything that's live
+        tx.execute("DELETE FROM journal_fts", [])?;
+        let mut s = tx.prepare("SELECT id, title, body_text, tags_json, COALESCE(location,'') FROM journal_entries WHERE deleted_at IS NULL")?;
+        let rows: Vec<(String, String, String, String, String)> =
+            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect::<Result<_, _>>()?;
+        drop(s);
+        for (id, title, body, tags, loc) in rows {
+            let tags: Vec<String> = serde_json::from_str(&tags).unwrap_or_default();
+            tx.execute("INSERT INTO journal_fts(entry_id, title, body, tags, location) VALUES (?1,?2,?3,?4,?5)", params![id, title, body, tags.join(" "), loc])?;
+        }
+        tx.commit()?;
+        Ok(())
+    })();
+    conn.execute("DETACH DATABASE bak", [])?;
+    res?;
+    Ok(added)
+}
+
+/// Tables that are this install's own bookkeeping (never copied to another PC).
+pub fn local_only_tables() -> &'static [&'static str] {
+    LOCAL_ONLY
 }
 
 /// Small rotating copies of the database inside the data folder (protects against a
@@ -487,6 +512,60 @@ mod tests {
         assert!(verify_archive(&b.db, &b.store).unwrap().ok);
         let self_user: String = b.db.lock().unwrap().query_row("SELECT display_name FROM users WHERE is_self = 1", [], |r| r.get(0)).unwrap();
         assert_eq!(self_user, "Jo");
+    }
+
+    #[test]
+    fn encrypted_backup_in_a_cloud_folder_is_unreadable_and_restores_with_the_recovery_phrase() {
+        let a = pc();
+        add_entry(&a, "Secret beach", true);
+        let key = crate::sync::crypto::SpaceKey::generate();
+        let cloud = tempfile::tempdir().unwrap(); // stands in for the OneDrive folder
+        // an earlier plain backup in the same folder gets cleaned away
+        run_backup(&a.db, &a.store, cloud.path(), "test", &|_, _| {}).unwrap();
+        let r1 = sealed::run_backup(&a.db, &a.store, cloud.path(), "test", &key, &|_, _| {}).unwrap();
+        assert!(r1.verify.ok);
+        assert_eq!(r1.copied_files, 1);
+        add_entry(&a, "Cinema", false);
+        assert_eq!(sealed::run_backup(&a.db, &a.store, cloud.path(), "test", &key, &|_, _| {}).unwrap().copied_files, 0, "incremental");
+        assert!(sealed::is_sealed(cloud.path()));
+
+        // nothing readable is left in the folder: no titles, no photo bytes, no file hashes
+        let (_, m) = sealed::read_manifest(cloud.path(), &key).unwrap();
+        let photo = std::fs::read(a.store.original(&m.media[0].hash, &m.media[0].ext)).unwrap();
+        for e in walk(cloud.path()) {
+            let bytes = std::fs::read(&e).unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(!text.contains("Secret beach") && !text.contains(&m.media[0].hash), "{e:?} leaks");
+            assert!(!bytes.windows(64).any(|w| w == &photo[photo.len() / 2..photo.len() / 2 + 64]), "{e:?} has photo bytes");
+            assert!(e.extension().is_none_or(|x| x != "db" && x != "png"), "{e:?} is a plain copy");
+        }
+
+        // a new PC with only the recovery phrase gets everything back
+        let b = {
+            let dir = tempfile::tempdir().unwrap();
+            let conn = crate::db::open(&dir.path().join("t.db")).unwrap();
+            let store = Store::new(dir.path()).unwrap();
+            Pc { _dir: dir, db: Mutex::new(conn), store }
+        };
+        let phrase_key = crate::sync::crypto::SpaceKey::from_phrase(&key.to_phrase()).unwrap();
+        assert!(sealed::read_manifest(cloud.path(), &crate::sync::crypto::SpaceKey::generate()).unwrap_err().to_string().contains("backup_wrong_key"));
+        let scratch = b._dir.path().join("imports");
+        let rep = sealed::restore(&b.db, &b.store, cloud.path(), &phrase_key, &scratch, &|_, _| {}).unwrap();
+        assert_eq!(rep.added_files, 1);
+        assert_eq!(titles(&b), vec!["Cinema", "Secret beach"]);
+        assert!(verify_archive(&b.db, &b.store).unwrap().ok, "photo byte-identical");
+    }
+
+    fn walk(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in fs::read_dir(dir).unwrap().flatten() {
+            if e.path().is_dir() {
+                out.extend(walk(&e.path()));
+            } else {
+                out.push(e.path());
+            }
+        }
+        out
     }
 
     #[test]

@@ -4,7 +4,11 @@ import { CheckCircle2, ClipboardCopy, Cloud, KeyRound, Laptop, Loader, RefreshCw
 import setupSql from "../../../supabase/setup.sql?raw";
 import { describe, syncApi, syncKeys, useSyncStatus, type SyncConflict } from "./syncApi";
 import { JoinForm } from "./JoinForm";
+import { ForgotPassword } from "./ForgotPassword";
+import { LinkDeviceButton, LinkForm } from "./LinkDevice";
+import { DeleteAccountButton } from "./DeleteAccount";
 import { useProfile, queryClient } from "../../lib/queries";
+import { useIsStore } from "../../lib/edition";
 import { isDesktop } from "../../lib/api";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
@@ -35,6 +39,84 @@ function Step({ n, title, done, children }: { n: number; title: string; done?: b
         <div className="mt-1.5 text-[12px] leading-relaxed text-muted">{children}</div>
       </div>
     </li>
+  );
+}
+
+/** Store edition: a Dear Us account (email + password). Nothing else to set up. */
+function CloudSetup() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [haveAccount, setHaveAccount] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
+  const [linking, setLinking] = useState(false);
+
+  if (linking)
+    return (
+      <div>
+        <p className="mb-4 text-[12.5px] text-muted">Already using Dear Us on another device? Link this one to it with your own account.</p>
+        <LinkForm />
+        <button onClick={() => setLinking(false)} className="mt-4 text-[12px] text-muted hover:text-ink">
+          ← Back
+        </button>
+      </div>
+    );
+
+  if (joining)
+    return (
+      <div>
+        <p className="mb-4 text-[12.5px] text-muted">Paste the invite code your partner sent you, and create your own Dear Us account (or sign in to it).</p>
+        <JoinForm needName={false} onJoined={() => toast("You're connected ♡ Your memories will start syncing.")} />
+        <button onClick={() => setJoining(false)} className="mt-4 text-[12px] text-muted hover:text-ink">
+          ← I'm the first of us to set this up
+        </button>
+      </div>
+    );
+
+  const connect = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await syncApi.connectAccount("", "", email, password, !haveAccount);
+      refresh();
+    } catch (e) {
+      setError(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-xl bg-paper-2 p-4 text-[12.5px] leading-relaxed text-ink-soft">
+        <b>Did your partner already set this up?</b> Then you only need their invite code.{" "}
+        <button onClick={() => setJoining(true)} className="font-bold text-accent hover:underline">
+          Join with an invite code →
+        </button>
+        <br />
+        <b>Using Dear Us on another device already?</b>{" "}
+        <button onClick={() => setLinking(true)} className="font-bold text-accent hover:underline">
+          Link to my other device →
+        </button>
+      </div>
+      <p className="text-[12.5px] text-muted">
+        Each of you has your own Dear Us account. Your memories are locked with a key that only exists on your two PCs, so not even we can read them.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Your email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+        <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={haveAccount ? "current-password" : "new-password"} hint="At least 8 characters" />
+      </div>
+      <label className="flex items-center gap-2 text-[12px] text-ink-soft">
+        <input type="checkbox" checked={haveAccount} onChange={(e) => setHaveAccount(e.target.checked)} className="accent-[var(--accent)]" /> I already have a Dear Us account
+      </label>
+      {haveAccount && <ForgotPassword initialEmail={email} />}
+      {error && <p className="text-[12px] text-[#b0413e]">{error}</p>}
+      <div>
+        <Button onClick={connect} disabled={busy || !email || password.length < 8} icon={busy ? <Loader size={15} className="animate-spin" /> : <Cloud size={15} />}>
+          {haveAccount ? "Sign in" : "Create my account"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -278,10 +360,12 @@ function ConflictList() {
   );
 }
 
-function SignInAgain() {
+function SignInAgain({ email }: { email?: string | null }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const store = useIsStore();
   return (
+    <div className="flex flex-col gap-1.5">
     <div className="flex items-end gap-2">
       <div className="flex-1">
         <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -304,6 +388,8 @@ function SignInAgain() {
         Sign in
       </Button>
     </div>
+    {store && <ForgotPassword initialEmail={email ?? ""} onDone={refresh} />}
+    </div>
   );
 }
 
@@ -318,11 +404,13 @@ function fmtWhen(iso: string | null) {
 
 function Dashboard() {
   const { data: s } = useSyncStatus();
+  const store = useIsStore();
   const { data: profile } = useProfile();
   const [phrase, setPhrase] = useState<string | null>(null);
   const [askPhrase, setAskPhrase] = useState(false);
   const [revoke, setRevoke] = useState<string | null>(null);
   const [disconnect, setDisconnect] = useState(false);
+  const [leave, setLeave] = useState(false);
   if (!s) return null;
   const d = describe(s, profile?.partner?.displayName);
   const partnerDevices = s.devices.filter((x) => !x.mine && !x.revoked);
@@ -356,7 +444,7 @@ function Dashboard() {
           Sync now
         </Button>
       </div>
-      {s.state === "signed_out" && <SignInAgain />}
+      {s.state === "signed_out" && <SignInAgain email={s.email} />}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {tile("waiting to send", s.counts.pendingOps)}
         {tile("waiting for partner", s.counts.awaitingDelivery)}
@@ -369,6 +457,7 @@ function Dashboard() {
         </p>
       )}
       <ConflictList />
+      {!store && (
       <div>
         <div className="mb-1.5 flex justify-between text-[11px] text-muted">
           <span>Temporary cloud space in use</span>
@@ -379,6 +468,8 @@ function Dashboard() {
         </div>
         <p className="mt-1.5 text-[11px] text-faint">Files only wait here until your partner's PC has them, then they're deleted.</p>
       </div>
+      )}
+      {store && <p className="text-[11px] text-faint">The cloud is only a mailbox: everything is deleted from it as soon as your partner's PC has it.</p>}
       <div>
         <strong className="mb-2 block text-[12.5px]">Devices</strong>
         <ul className="divide-y divide-line-soft rounded-xl border border-line">
@@ -431,13 +522,15 @@ function Dashboard() {
           Show recovery phrase
         </Button>
         {partnerDevices.length > 0 && <InvitePanelButton />}
-        <Button variant="ghost" size="sm" icon={<Unplug size={13} />} onClick={() => setDisconnect(true)} className="ml-auto text-muted!">
-          Stop syncing on this PC
+        {store && <LinkDeviceButton />}
+        <Button variant="ghost" size="sm" icon={<Unplug size={13} />} onClick={() => (store ? setLeave(true) : setDisconnect(true))} className="ml-auto text-muted!">
+          {store ? "Disconnect from my partner" : "Stop syncing on this PC"}
         </Button>
       </div>
-      <p className="text-[11px] text-faint">
-        {s.email} · {s.projectUrl}
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] text-faint">{store ? s.email : `${s.email} · ${s.projectUrl}`}</p>
+        {store && <DeleteAccountButton />}
+      </div>
 
       <ConfirmDialog
         open={askPhrase}
@@ -474,6 +567,24 @@ function Dashboard() {
         }}
       />
       <ConfirmDialog
+        open={leave}
+        title="Disconnect from your partner?"
+        message="From now on, nothing is shared between you, in either direction, on any of your devices. Everything already on this PC stays here, including what was shared before. Your partner keeps your shared space and its plan. You can connect again later with a new invite code."
+        confirmLabel="Disconnect"
+        danger
+        onCancel={() => setLeave(false)}
+        onConfirm={async () => {
+          setLeave(false);
+          try {
+            await syncApi.leaveSpace();
+            toast("Disconnected. Your memories are still here.");
+          } catch (e) {
+            toastError(String(e).replace(/^Error:\s*/, ""));
+          }
+          refresh();
+        }}
+      />
+      <ConfirmDialog
         open={disconnect}
         title="Stop syncing on this PC?"
         message="Your memories stay on this computer. Nothing is deleted. You can connect again later with a new invite code."
@@ -505,6 +616,8 @@ function InvitePanelButton() {
 }
 
 function CreateOrJoin() {
+  const store = useIsStore();
+  const [linking, setLinking] = useState(false);
   const [phrase, setPhrase] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [join, setJoin] = useState(false);
@@ -521,6 +634,15 @@ function CreateOrJoin() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] text-muted">Signed in ✓ One of you creates the shared space; the other joins it with an invite code.</p>
+      {store && (
+        <p className="rounded-lg bg-paper-2 px-3 py-2 text-[12px] text-ink-soft">
+          Already using Dear Us on another device? Don't create a new space: on that device choose <b>Link my phone or another PC</b>, then{" "}
+          <button onClick={() => setLinking(true)} className="font-bold text-accent hover:underline">
+            enter the link code here →
+          </button>
+        </p>
+      )}
+      {linking && <LinkForm />}
       {join ? (
         <JoinForm needName={false} onJoined={() => toast("You're connected ♡")} />
       ) : (
@@ -549,16 +671,25 @@ function CreateOrJoin() {
 
 export function SyncSettings() {
   const { data: s, isLoading } = useSyncStatus();
+  const store = useIsStore();
   if (!isDesktop) return <p className="text-[12.5px] text-muted">Partner sync works in the desktop app.</p>;
   if (isLoading || !s) return null;
-  if (!s.configured) return <SetupWizard />;
+  if (!s.configured) return store ? <CloudSetup /> : <SetupWizard />;
   if (!s.paired && !s.signedIn)
     return (
       <div className="flex flex-col gap-3">
         <p className="text-[12.5px] text-muted">
-          Your project is connected. Now sign in as <b>{s.email}</b>. If you just created this sign-in, click the confirmation link Supabase emailed you first.
+          {store ? (
+            <>
+              Sign in again as <b>{s.email}</b>.
+            </>
+          ) : (
+            <>
+              Your project is connected. Now sign in as <b>{s.email}</b>. If you just created this sign-in, click the confirmation link Supabase emailed you first.
+            </>
+          )}
         </p>
-        <SignInAgain />
+        <SignInAgain email={s.email} />
         <button
           onClick={async () => {
             await syncApi.disconnect();
@@ -566,7 +697,7 @@ export function SyncSettings() {
           }}
           className="self-start text-[11.5px] text-muted hover:text-ink"
         >
-          Use a different project or email
+          {store ? "Use a different email" : "Use a different project or email"}
         </button>
       </div>
     );

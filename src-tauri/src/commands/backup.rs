@@ -25,6 +25,8 @@ pub struct BackupStatus {
     last_copied: Option<i64>,
     last_total: Option<i64>,
     local_snapshots: usize,
+    /// Store edition: new backups are sealed with the space key.
+    encrypted: bool,
 }
 
 #[tauri::command]
@@ -41,6 +43,8 @@ pub fn backup_status(state: State<AppState>) -> AppResult<BackupStatus> {
         last_copied: last.as_ref().and_then(|l| l["copied"].as_i64()),
         last_total: last.as_ref().and_then(|l| l["total"].as_i64()),
         local_snapshots: snaps,
+        encrypted: cfg!(feature = "store")
+            && crate::sync::device_id(&conn).ok().and_then(|d| crate::sync::service::load_key(&d).ok().flatten()).is_some(),
     })
 }
 
@@ -67,14 +71,37 @@ pub fn backup_set_auto(state: State<AppState>, on: bool) -> AppResult<()> {
     meta_set(&state.db.lock().unwrap(), "backup.auto", if on { "1" } else { "0" })
 }
 
+/// Store edition: backups are encrypted with the space key once this PC has one (after
+/// creating or joining the shared space). The personal edition keeps plain backups.
+fn backup_key(app: &AppHandle) -> Option<crate::sync::crypto::SpaceKey> {
+    if !cfg!(feature = "store") {
+        return None;
+    }
+    let state = app.state::<AppState>();
+    let device = crate::sync::device_id(&state.db.lock().unwrap()).ok()?;
+    crate::sync::service::load_key(&device).ok().flatten()
+}
+
+/// The key to open an encrypted backup: this PC's, or the one behind a recovery phrase.
+fn opening_key(app: &AppHandle, phrase: Option<&str>) -> AppResult<crate::sync::crypto::SpaceKey> {
+    if let Some(p) = phrase.filter(|p| !p.trim().is_empty()) {
+        return crate::sync::crypto::SpaceKey::from_phrase(p);
+    }
+    backup_key(app).ok_or_else(|| AppError::invalid("[backup_locked] This backup is encrypted. Enter your 24-word recovery phrase to open it."))
+}
+
 fn do_backup(app: &AppHandle) -> AppResult<BackupResult> {
     let state = app.state::<AppState>();
     let folder = get(&state.db.lock().unwrap(), "backup.folder")?.ok_or_else(|| AppError::invalid("Choose a backup folder first."))?;
     let version = app.package_info().version.to_string();
     let a = app.clone();
-    let res = backup::run_backup(&state.db, &state.store, &PathBuf::from(&folder), &version, &move |done, total| {
+    let progress = move |done: usize, total: usize| {
         let _ = a.emit("backup-progress", json!({ "done": done, "total": total }));
-    });
+    };
+    let res = match backup_key(app) {
+        Some(key) => backup::sealed::run_backup(&state.db, &state.store, &PathBuf::from(&folder), &version, &key, &progress),
+        None => backup::run_backup(&state.db, &state.store, &PathBuf::from(&folder), &version, &progress),
+    };
     let conn = state.db.lock().unwrap();
     let record = match &res {
         Ok(r) => json!({ "at": r.created_at, "ok": true, "copied": r.copied_files, "total": r.total_files }),
@@ -100,17 +127,38 @@ pub struct BackupInfo {
     entries: i64,
     files: usize,
     app_version: String,
+    /// Sealed with the space key (Store edition).
+    encrypted: bool,
 }
 
 #[tauri::command]
-pub fn backup_inspect(path: String) -> AppResult<BackupInfo> {
-    let (_, m) = backup::read_manifest(&PathBuf::from(path))?;
-    Ok(BackupInfo { created_at: m.created_at, space_name: m.space_name, entries: m.entries, files: m.media.len(), app_version: m.app_version })
+pub fn backup_inspect(app: AppHandle, path: String, phrase: Option<String>) -> AppResult<BackupInfo> {
+    let p = PathBuf::from(path);
+    if backup::sealed::is_sealed(&p) {
+        let (_, m) = backup::sealed::read_manifest(&p, &opening_key(&app, phrase.as_deref())?)?;
+        return Ok(BackupInfo { created_at: m.created_at, space_name: m.space_name, entries: m.entries, files: m.media.len(), app_version: m.app_version, encrypted: true });
+    }
+    let (_, m) = backup::read_manifest(&p)?;
+    Ok(BackupInfo { created_at: m.created_at, space_name: m.space_name, entries: m.entries, files: m.media.len(), app_version: m.app_version, encrypted: false })
 }
 
 #[tauri::command]
-pub async fn backup_verify(path: String) -> AppResult<VerifyReport> {
-    tauri::async_runtime::spawn_blocking(move || backup::verify_backup(&PathBuf::from(path))).await.map_err(|e| AppError::invalid(e.to_string()))?
+pub async fn backup_verify(app: AppHandle, path: String, phrase: Option<String>) -> AppResult<VerifyReport> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = PathBuf::from(path);
+        if backup::sealed::is_sealed(&p) {
+            return backup::sealed::verify_backup(&p, &opening_key(&app, phrase.as_deref())?);
+        }
+        backup::verify_backup(&p)
+    })
+    .await
+    .map_err(|e| AppError::invalid(e.to_string()))?
+}
+
+/// OneDrive / Google Drive / iCloud Drive / Dropbox folders found on this PC.
+#[tauri::command]
+pub fn backup_cloud_folders() -> Vec<backup::sealed::CloudFolder> {
+    backup::sealed::cloud_folders()
 }
 
 #[tauri::command]
@@ -125,16 +173,22 @@ pub async fn archive_verify(app: AppHandle) -> AppResult<VerifyReport> {
 }
 
 #[tauri::command]
-pub async fn backup_restore(app: AppHandle, path: String) -> AppResult<RestoreReport> {
+pub async fn backup_restore(app: AppHandle, path: String, phrase: Option<String>) -> AppResult<RestoreReport> {
     let a = app.clone();
     let report = tauri::async_runtime::spawn_blocking(move || -> AppResult<RestoreReport> {
         let s = a.state::<AppState>();
+        let p = PathBuf::from(path);
+        let key = if backup::sealed::is_sealed(&p) { Some(opening_key(&a, phrase.as_deref())?) } else { None };
         // a safety copy of the current database first, just in case
         let _ = backup::local_snapshot(&s.db, &s.data_dir);
         let b = a.clone();
-        let rep = backup::restore(&s.db, &s.store, &PathBuf::from(path), &move |done, total| {
+        let progress = move |done: usize, total: usize| {
             let _ = b.emit("backup-progress", json!({ "done": done, "total": total }));
-        })?;
+        };
+        let rep = match key {
+            Some(k) => backup::sealed::restore(&s.db, &s.store, &p, &k, &s.data_dir.join("imports"), &progress)?,
+            None => backup::restore(&s.db, &s.store, &p, &progress)?,
+        };
         regenerate_previews(&a);
         Ok(rep)
     })

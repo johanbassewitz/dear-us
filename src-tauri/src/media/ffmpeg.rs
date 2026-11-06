@@ -3,6 +3,12 @@
 //! Lookup order: DEARUS_FFMPEG env → ffmpeg.exe next to the app → <data>/tools (the
 //! one-click download from Settings) → PATH.
 //! Without ffmpeg, originals are still stored safely; they just can't be previewed.
+//!
+//! Licensing: the personal edition's one-click download is a GPL build (fine for a free,
+//! self-installed tool). The Microsoft Store edition never downloads code at runtime: it ships
+//! an LGPL build (dynamically linked, unmodified, with its notice and source link) inside the
+//! package, next to the app (see packaging/msix/). LGPL builds have no libx264, so video
+//! previews fall back to Windows' own H.264 encoder (Media Foundation) or OpenH264.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -85,6 +91,10 @@ const FFMPEG_SHA256: &str = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e942
 /// Downloads the pinned ffmpeg build (~110 MB), verifies it and keeps only ffmpeg.exe and
 /// ffprobe.exe in `<data>/tools`. `progress` gets (bytes so far, total if known).
 pub fn install(progress: impl Fn(u64, Option<u64>)) -> Result<(), String> {
+    if cfg!(feature = "store") {
+        let _ = progress;
+        return Err("The converter comes with Dear Us from the Microsoft Store. If it's missing, repair or reinstall the app from the Store.".into());
+    }
     use sha2::{Digest, Sha256};
     use std::io::{Read, Write};
     let dir = TOOLS_DIR.get().ok_or("tools folder not set")?.clone();
@@ -222,16 +232,49 @@ pub fn still_jpeg(input: &Path, out: &Path, seek_secs: Option<f64>) -> bool {
     run(args) && out.exists()
 }
 
+/// H.264 encoders to try, best first: libx264 (GPL builds), then Windows' Media Foundation
+/// encoder and OpenH264 (both usable with LGPL builds).
+pub const H264_ENCODERS: &[(&str, &[&str])] = &[
+    ("libx264", &["-preset", "veryfast", "-crf", "22"]),
+    ("h264_mf", &["-b:v", "6M"]),
+    ("libopenh264", &["-b:v", "6M"]),
+];
+
+pub fn video_proxy_args(input: &Path, out: &Path, encoder: &str, tuning: &[&str]) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec!["-i".into(), input.into()];
+    args.extend(os(&["-map", "0:v:0", "-map", "0:a:0?", "-c:v", encoder]));
+    args.extend(os(tuning));
+    args.extend(os(&["-vf", "scale='min(1920,iw)':-2,format=yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"]));
+    args.push(out.into());
+    args
+}
+
 /// H.264/AAC MP4 copy that WebView2 can always play. Original is untouched.
 pub fn video_proxy(input: &Path, out: &Path) -> bool {
-    let mut args: Vec<OsString> = vec!["-i".into(), input.into()];
-    args.extend(os(&[
-        "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-        "-vf", "scale='min(1920,iw)':-2,format=yuv420p", "-c:a", "aac", "-b:a", "160k",
-        "-movflags", "+faststart",
-    ]));
-    args.push(out.into());
-    run(args) && out.exists()
+    H264_ENCODERS.iter().any(|(encoder, tuning)| {
+        let _ = std::fs::remove_file(out); // a failed attempt may leave a partial file
+        run(video_proxy_args(input, out, encoder, tuning)) && out.exists()
+    })
+}
+
+#[cfg(test)]
+mod encoder_tests {
+    #[test]
+    fn libx264_first_then_lgpl_friendly_encoders() {
+        let names: Vec<&str> = super::H264_ENCODERS.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["libx264", "h264_mf", "libopenh264"]);
+        let a = super::video_proxy_args(std::path::Path::new("in.mov"), std::path::Path::new("out.mp4"), "h264_mf", &["-b:v", "6M"]);
+        let a: Vec<String> = a.iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        assert!(a.windows(2).any(|w| w == ["-c:v", "h264_mf"]));
+        assert!(!a.iter().any(|x| x == "-crf"), "crf is libx264-only");
+        assert_eq!(a.last().unwrap(), "out.mp4");
+    }
+
+    #[cfg(feature = "store")]
+    #[test]
+    fn the_store_edition_never_downloads_code() {
+        assert!(super::install(|_, _| {}).unwrap_err().contains("Microsoft Store"));
+    }
 }
 
 #[cfg(test)]

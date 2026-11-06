@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { ArrowRight, HardDrive, Heart, Lock, Users } from "lucide-react";
+import { ArrowRight, HardDrive, Heart, Lock, MonitorSmartphone, Users } from "lucide-react";
+import { LinkForm } from "../sync/LinkDevice";
+import { useIsStore } from "../../lib/edition";
 import { ProfileForm } from "../settings/ProfileForm";
 import { JoinForm } from "../sync/JoinForm";
 import { RestorePanel } from "../backup/BackupSettings";
@@ -9,7 +11,8 @@ import cupidHappy from "../../cupid/assets/cupid-happy.webp";
 
 /** First run: create the space locally. Joining a partner arrives with sync. */
 export function WelcomePage() {
-  const [step, setStep] = useState<"hello" | "profile" | "join" | "restore">("hello");
+  const [step, setStep] = useState<"hello" | "profile" | "join" | "restore" | "link">("hello");
+  const store = useIsStore();
 
   return (
     <div className="flex h-full items-center justify-center overflow-auto bg-bg p-6">
@@ -43,6 +46,11 @@ export function WelcomePage() {
                 Join my partner
               </Button>
             </div>
+            {store && (
+              <Button className="mt-3" variant="ghost" size="sm" icon={<MonitorSmartphone size={14} />} onClick={() => setStep("link")}>
+                I already use Dear Us on another device
+              </Button>
+            )}
             <button onClick={() => setStep("restore")} className="mt-4 text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline">
               Restore from a backup instead
             </button>
@@ -53,6 +61,16 @@ export function WelcomePage() {
             <h1 className="page-title mt-2 mb-1.5">Restore from a backup</h1>
             <p className="mb-6 text-[13px] text-muted">Choose your DearUsBackup folder. Every file is checked before it comes back. Afterwards, reconnect sync in Settings.</p>
             <RestorePanel onDone={() => queryClient.invalidateQueries({ queryKey: keys.profile })} />
+            <button onClick={() => setStep("hello")} className="mt-5 inline-flex items-center gap-1 text-[12px] text-muted hover:text-ink">
+              <ArrowRight size={13} className="rotate-180" /> Back
+            </button>
+          </div>
+        ) : step === "link" ? (
+          <div>
+            <div className="eyebrow">Your second device</div>
+            <h1 className="page-title mt-2 mb-1.5">Link to your other device</h1>
+            <p className="mb-6 text-[13px] text-muted">Everything you two have saved comes over, encrypted, and then this device stays in sync like the other one.</p>
+            <LinkForm />
             <button onClick={() => setStep("hello")} className="mt-5 inline-flex items-center gap-1 text-[12px] text-muted hover:text-ink">
               <ArrowRight size={13} className="rotate-180" /> Back
             </button>

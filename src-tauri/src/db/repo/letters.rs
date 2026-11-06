@@ -355,6 +355,14 @@ pub fn restore(conn: &mut Connection, w: &Writer, me: &str, id: &str) -> AppResu
     Ok(())
 }
 
+/// Time capsules (from either of us) that are sealed and still waiting for their moment.
+#[cfg_attr(not(feature = "store"), allow(dead_code))]
+pub fn sealed_waiting(conn: &Connection) -> AppResult<i64> {
+    let mut s = conn.prepare("SELECT unlock_at FROM letters WHERE kind = 'capsule' AND status = 'sent' AND unlocked_at IS NULL AND deleted_at IS NULL")?;
+    let rows: Vec<Option<String>> = s.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    Ok(rows.into_iter().flatten().filter(|u| is_future(u)).count() as i64)
+}
+
 pub fn purge_expired(conn: &mut Connection, w: &Writer, retention_days: i64) -> AppResult<usize> {
     let cutoff = (chrono::Utc::now() - chrono::Duration::days(retention_days))
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -751,6 +759,17 @@ mod tests {
         assert!(unlock_plan(&conn, &me, &id).unwrap_err().to_string().contains("Not quite time"));
         conn.execute("UPDATE letters SET show_title = 1, title = 'Visible title' WHERE id='c1'", []).unwrap();
         assert_eq!(get(&conn, &me, &id).unwrap().summary.title.as_deref(), Some("Visible title"));
+    }
+
+    #[test]
+    fn counts_only_capsules_still_waiting_to_open() {
+        let (mut conn, _w, me) = jt::setup();
+        assert_eq!(sealed_waiting(&conn).unwrap(), 0);
+        let id = received_capsule(&mut conn, false, &future(24), chrono::Utc::now().timestamp() + 86_400);
+        assert_eq!(sealed_waiting(&conn).unwrap(), 1);
+        conn.execute("UPDATE letters SET unlock_at = '2020-01-01T00:00:00.000Z' WHERE id = ?1", [&id]).unwrap();
+        assert_eq!(sealed_waiting(&conn).unwrap(), 0, "its moment has come");
+        let _ = me;
     }
 
     #[test]

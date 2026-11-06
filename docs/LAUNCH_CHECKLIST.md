@@ -55,12 +55,12 @@ Paddle, Part 6.4).
 
 ## Part 4 — Website (free, ~10 min)
 
-1. Cloudflare → **Workers & Pages → Create → Pages → Connect to Git** → allow GitHub → pick the
-   `dear-us` repository.
-2. Production branch: `main` · Framework preset: **None** · Build command: *(empty)* ·
-   Build output directory: `site` → **Save and Deploy**.
-3. The project → **Custom domains → Set up a custom domain** → `dearus.axianthq.com` → **Activate**.
-4. Check in a browser: `https://dearus.axianthq.com/privacy.html` opens.
+1. Cloudflare → **Workers & Pages → Create → Import a repository** → GitHub → `dear-us`.
+2. Project → **Settings → Build**: Root directory **`site`** · Build command: *(empty)* ·
+   Deploy command: `npx wrangler deploy` · branch `main`.
+3. **Settings → Domains & Routes → Add → Custom domain** → `dearus.axianthq.com`.
+4. Check: `https://dearus.axianthq.com` shows the Dear Us page (not the app), and
+   `https://dearus.axianthq.com/privacy` opens.
 
 ---
 
@@ -138,7 +138,7 @@ separate sign-up, fake money), then repeat the same steps in the live account (v
    - "100 Cupid arrows" → 1 price: **$1.99**, one-time.
    - (optional) "300 Cupid arrows" → **$3.99**, one-time.
    Copy each **price ID** (`pri_…`).
-3. **Checkout → Checkout settings → Default payment link**: `https://dearus.axianthq.com/checkout.html`.
+3. **Checkout → Checkout settings → Default payment link**: `https://dearus.axianthq.com/checkout`.
    Also **Website approval**: add `dearus.axianthq.com` if Paddle asks.
 4. **Developer tools → Authentication**:
    - **API key** (server) with write permissions for transactions and customer portal sessions.

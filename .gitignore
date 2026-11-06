@@ -13,3 +13,4 @@ cupid_transparent_sprites.zip
 *.key.password
 .env*
 dist-msix/
+.wrangler/

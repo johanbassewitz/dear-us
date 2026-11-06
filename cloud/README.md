@@ -47,7 +47,14 @@ Point a Store-edition build at it with `DEARUS_CLOUD_URL=http://localhost:8080` 
 TEST_DATABASE_URL=postgres://postgres:pw@localhost:5432/postgres cargo test
 ```
 
-## Deploy (Stage 1: one VPS, ~5 EUR/month)
+## Deploy on Render (recommended: nothing to manage, ~$13/month)
+
+`render.yaml` at the repository root is a Render Blueprint: Render → New → Blueprint → this
+repository creates a Postgres database and this service (Docker, from `cloud/`), connects them,
+generates `SERVER_SECRET`, and asks for the service keys. The server listens on Render's `PORT`.
+Add `dearus-api.axianthq.com` under Custom Domains (CNAME in Cloudflare, DNS only).
+
+## Deploy on a VPS (Stage 1 alternative: ~5–12 EUR/month)
 
 **Quick way:** copy this folder to a fresh Ubuntu 24.04 server and run `bash deploy/setup-vps.sh`
 as root. It installs Docker and a firewall, creates `.env` with generated secrets (you add the

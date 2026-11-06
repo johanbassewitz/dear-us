@@ -110,7 +110,8 @@ impl Config {
             _ => return Err("set all of MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET (or none)".into()),
         };
         Ok(Config {
-            bind: opt("BIND").unwrap_or_else(|| "0.0.0.0:8080".into()),
+            // BIND, or the PORT a hosting platform (Render, Railway, …) hands us, or 8080
+            bind: opt("BIND").unwrap_or_else(|| format!("0.0.0.0:{}", opt("PORT").unwrap_or_else(|| "8080".into()))),
             database_url: opt("DATABASE_URL").ok_or("DATABASE_URL is required")?,
             public_url: opt("PUBLIC_URL").ok_or("PUBLIC_URL is required (e.g. https://dearus-api.axianthq.com)")?.trim_end_matches('/').to_string(),
             secret: secret.into_bytes(),

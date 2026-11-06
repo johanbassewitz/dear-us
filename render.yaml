@@ -1,0 +1,66 @@
+# Render Blueprint for the Dear Us cloud (https://render.com/docs/blueprint-spec).
+# Render → New → Blueprint → this repository. It creates the database and the web service,
+# connects them, and asks for the values marked `sync: false` (your service keys).
+databases:
+  - name: dearus-db
+    plan: basic-256mb
+    region: frankfurt
+    databaseName: dearus
+    user: dearus
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: dearus-api
+    runtime: docker
+    plan: starter            # always on (the free plan sleeps, which breaks syncing)
+    region: frankfurt
+    branch: main
+    rootDir: cloud           # only changes in cloud/ redeploy the server
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /v1/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dearus-db
+          property: connectionString
+      - key: PUBLIC_URL
+        value: https://dearus-api.axianthq.com
+      - key: SERVER_SECRET
+        generateValue: true
+      # --- photos in transit: Cloudflare R2 ---
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET
+        value: dearus-relay
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      # --- Cupid: Google Gemini (paid tier) ---
+      - key: GEMINI_API_KEY
+        sync: false
+      # --- password-reset emails: Resend ---
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        value: Dear Us <dearus-noreply@axianthq.com>
+      # --- payments: Paddle (start with sandbox) ---
+      - key: PADDLE_ENV
+        value: sandbox
+      - key: PADDLE_API_KEY
+        sync: false
+      - key: PADDLE_WEBHOOK_SECRET
+        sync: false
+      - key: PADDLE_PRICE_PREMIUM_MONTHLY
+        sync: false
+      - key: PADDLE_PRICE_PREMIUM_YEARLY
+        sync: false
+      - key: PADDLE_PRICE_ARROWS_100
+        sync: false
+      - key: PADDLE_PRICE_ARROWS_300
+        sync: false
+      - key: RUST_LOG
+        value: info,tower_http=warn

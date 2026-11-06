@@ -286,7 +286,7 @@ pub fn save_plan(conn: &Connection, p: &super::cloud::Plan) -> AppResult<()> {
         "tier": p.tier, "trial_ends_at": p.trial_ends_at, "premium_until": p.premium_until, "period": p.period,
         "media_cap_bytes": p.media_cap_bytes, "media_used_bytes": p.media_used_bytes, "cupid_allowance": p.cupid_allowance,
         "cupid_used": p.cupid_used, "cupid_bonus": p.cupid_bonus, "cupid_remaining": p.cupid_remaining, "capsule_limit": p.capsule_limit,
-        "billing_available": p.billing_available,
+        "billing_available": p.billing_available, "billing_provider": p.billing_provider,
     });
     meta_set(conn, "plan.cache", &v.to_string())
 }

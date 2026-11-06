@@ -1,5 +1,8 @@
 # Dear Us — Microsoft Store launch checklist
 
+Free download from the Microsoft Store; Premium and Cupid arrows are paid through **Paddle**
+(checkout in the browser). Microsoft Store purchases are not used.
+
 Do the parts in order. ⭐ = send the result to Claude. 🔒 = secret: never paste it in chat; it
 goes straight into the server's `.env` file. Menu names in Microsoft/Cloudflare/Google screens
 can differ slightly from what's written here.
@@ -20,15 +23,10 @@ Your app → **Product management → Product identity**. Send Claude these 4 li
 - Package/Properties/PublisherDisplayName
 - Store ID (starts with `9N`)
 
-**1.3 Payouts and tax**
-1. Partner Center → gear icon (top right) → **Payout and tax** → **Payout profile** → bank transfer.
-   Enter your Lebanese bank: account holder name (exactly as on the Partner Center account),
-   IBAN, SWIFT/BIC, bank name and address. Currency: USD.
-2. **Tax profile** → individual outside the US → **W-8BEN** form → sign electronically.
-3. If Lebanon or bank transfer isn't offered: stop and tell Claude (plan B: Paddle).
+**1.3 Payouts:** nothing to do in Partner Center (the app is free there; money comes through
+Paddle, Part 6.4).
 
-⭐ Also send Claude: **your full legal name** exactly as on the Partner Center account (it goes
-on the website).
+✅ Done: name "Dear Us", identity values, Store ID 9PP0J9L5P20C, owner Anthony Chaaya ("axiant.").
 
 ---
 
@@ -129,32 +127,32 @@ you get it (save: Ctrl+O, Enter; exit: Ctrl+X).
 3. **API Keys → Create API key** (Sending access).
 4. 🔒 Into `.env`: `RESEND_API_KEY`. (`MAIL_FROM` is already set to `Dear Us <no-reply@axiantlabs.dev>`.)
 
-**6.4 Microsoft Store purchases**
-*a) The 4 add-ons* — Partner Center → your app → **Add-ons → Create a new add-on**:
-
-| Type | Product ID | Price | Details |
-|---|---|---|---|
-| Subscription | `premium_monthly` | $3.99 | period: 1 month, no free trial |
-| Subscription | `premium_yearly` | $29.99 | period: 1 year, no free trial |
-| Developer-managed consumable | `arrows_100` | $1.99 | |
-| Developer-managed consumable | `arrows_300` | $3.99 | |
-
-For each: fill Pricing, Properties and a Store listing (titles/descriptions in
-`docs/STORE_LISTING.md`), then **Submit**. They're certified together with the app.
-⭐ Send Claude the 4 **Store IDs** (`9N…`) of the add-ons. Also put them in `.env`:
-`MS_PRODUCT_PREMIUM_MONTHLY`, `MS_PRODUCT_PREMIUM_YEARLY`, `MS_PRODUCT_ARROWS_100`, `MS_PRODUCT_ARROWS_300`.
-
-*b) The Azure AD app (lets your server check purchases)*
-1. portal.azure.com (free account; may ask for a card to verify you) → **Microsoft Entra ID →
-   App registrations → New registration** → name `Dear Us Store` → "Accounts in this
-   organizational directory only" → **Register**.
-2. Copy **Application (client) ID** and **Directory (tenant) ID**.
-3. **Certificates & secrets → New client secret** → 24 months → copy the **Value** right away.
-4. Partner Center → gear → **Account settings → Tenants** → associate this Azure AD tenant, then
-   **User management → Azure AD applications → Add** the `Dear Us Store` app.
-5. Your app → **Product management → Services → Product collections and purchases** → enter
-   the client ID → Save.
-6. 🔒 Into `.env`: `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET`.
+**6.4 Paddle (payments)** — do it first in the **sandbox** (sandbox-vendors.paddle.com, a
+separate sign-up, fake money), then repeat the same steps in the live account (vendors.paddle.com).
+1. Sign up at paddle.com as a seller (individual/sole trader), complete verification, and add your
+   payout method (bank wire to your IBAN; Payoneer only if Paddle can't wire to Lebanon).
+   Paddle reviews your website: it must be live first (Part 4) — it has prices, terms, privacy and refunds.
+2. **Catalog → Products → New product**:
+   - "Dear Us Premium" → add 2 prices: **$3.99 / month** (recurring, monthly) and **$29.99 / year**
+     (recurring, yearly), no trial.
+   - "100 Cupid arrows" → 1 price: **$1.99**, one-time.
+   - (optional) "300 Cupid arrows" → **$3.99**, one-time.
+   Copy each **price ID** (`pri_…`).
+3. **Checkout → Checkout settings → Default payment link**: `https://dearus.axiantlabs.dev/checkout.html`.
+   Also **Website approval**: add `dearus.axiantlabs.dev` if Paddle asks.
+4. **Developer tools → Authentication**:
+   - **API key** (server) with write permissions for transactions and customer portal sessions.
+   - **Client-side token** (starts `test_` in sandbox, `live_` in live) ⭐ send it to Claude: it's
+     public, it goes on the checkout page.
+5. **Developer tools → Notifications → New destination**:
+   URL `https://dearus-api.axiantlabs.dev/v1/billing/paddle/webhook`, type webhook, events:
+   `subscription.created`, `subscription.updated`, `subscription.activated`, `subscription.canceled`,
+   `subscription.past_due`, `subscription.paused`, `subscription.resumed`, `transaction.completed`.
+   Save, then copy its **secret key**.
+6. 🔒 Into `.env`: `PADDLE_ENV=sandbox` (later `production`), `PADDLE_API_KEY`,
+   `PADDLE_WEBHOOK_SECRET`, `PADDLE_PRICE_PREMIUM_MONTHLY`, `PADDLE_PRICE_PREMIUM_YEARLY`,
+   `PADDLE_PRICE_ARROWS_100`, `PADDLE_PRICE_ARROWS_300` (the price IDs aren't secret, but they
+   live in the same file).
 
 **6.5 Start the server**
 On the server:
@@ -181,6 +179,7 @@ browser. If it fails, copy the last lines of `docker compose logs api` to Claude
    - [ ] a memory with photos and a video arrives on the other PC
    - [ ] a love letter, and a time capsule set for tomorrow
    - [ ] Cupid chat (arrow count goes down), date ideas, Report button
+   - [ ] Disconnect from my partner, then invite again
    - [ ] Settings → Backups → OneDrive (or Google Drive) → Back up now
    - [ ] Forgot your password → code by email → new password
    - [ ] Link my phone or another PC → on a third PC / Windows user: I already use Dear Us on another device
@@ -197,7 +196,7 @@ browser. If it fails, copy the last lines of `docker compose logs api` to Claude
      **Visibility: Private audience** → create an audience with your and your partner's Microsoft account emails.
    - **Properties:** Category **Lifestyle** · Privacy policy `https://dearus.axiantlabs.dev/privacy.html` ·
      Website `https://dearus.axiantlabs.dev/` · Support `support@axiantlabs.dev` ·
-     "accesses personal information": **Yes**.
+     "accesses personal information": **Yes** · Additional license terms: `https://dearus.axiantlabs.dev/terms.html`.
    - **Age ratings:** answer as in `docs/STORE_LISTING.md`.
    - **Packages:** upload the `.msix`.
    - **Store listings → English:** paste everything from `docs/STORE_LISTING.md`; upload 8
@@ -208,19 +207,18 @@ browser. If it fails, copy the last lines of `docker compose logs api` to Claude
 
 ---
 
-## Part 9 — Test real purchases (free with promo codes)
+## Part 9 — Test payments (sandbox: fake money)
 
-1. When certified, install Dear Us **from the Store link** on both PCs (you're in the private
-   audience). Sign in to your accounts; pair if needed.
-2. Partner Center → each add-on → **Promo codes** → order a few codes → redeem them at
-   microsoft.com/redeem (the purchase then costs nothing).
-3. Test:
-   - [ ] Settings → Your plan → **Get Premium** → monthly → shows **Premium on both PCs**
-   - [ ] **100 Cupid arrows** → +100; buy again → works
-   - [ ] **Restore purchases** on the other PC
-4. ⭐ Send Claude the results. Claude fixes anything; you resubmit if needed.
-
----
+With the server on `PADDLE_ENV=sandbox` and the sandbox client token on the checkout page:
+1. Settings → Your plan → **Get Premium** → monthly → the checkout opens in your browser.
+2. Pay with Paddle's test card `4242 4242 4242 4242`, any future date, any CVC.
+   - [ ] back in Dear Us, **Premium shows on both PCs** within seconds
+   - [ ] **Manage subscription** opens Paddle's page → cancel → at the end of the period it's back to free
+   - [ ] **100 Cupid arrows** → +100; buy again → +100 again
+3. ⭐ Send Claude the results. Then switch to **live**: in `.env` put the live API key, webhook
+   secret, price IDs and `PADDLE_ENV=production`, run `bash deploy/setup-vps.sh` again, and send
+   Claude the live client token (for the checkout page). Do one real $3.99 purchase and refund it
+   from the Paddle dashboard.
 
 ## Part 10 — Go public 🎉
 
@@ -232,7 +230,7 @@ Partner Center → your app → **Update** → **Pricing and availability → Vi
 
 - On the server: `bash /opt/dearus/deploy/ai-reports.sh` → read Cupid reports → `… ai-reports.sh done`.
 - Database backups are automatic (`/var/backups/dearus`, 14 days). Copy one off the server monthly.
-- Partner Center → **Payouts**: monthly bank transfer once your balance is over $50.
+- Paddle → **Payouts**: Paddle pays out monthly (once over its minimum) to your bank or Payoneer.
 - Google Cloud billing alert emails: check Gemini costs stay small.
 
 ## Money summary
@@ -242,5 +240,6 @@ Partner Center → your app → **Update** → **Pricing and availability → Vi
 | Domain axiantlabs.dev | ~$12/year |
 | Hetzner CX22 | ~€5/month |
 | Gemini | cents per day at first |
-| Cloudflare R2, Pages, Email Routing, Resend, Azure AD, GitHub | free |
-| Microsoft | 15% of each sale |
+| Cloudflare R2, Pages, Email Routing, Resend, GitHub | free |
+| Microsoft Store | free (the app is free; payments don't go through Microsoft) |
+| Paddle | 5% + $0.50 per sale |

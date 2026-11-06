@@ -9,7 +9,7 @@ use tauri::AppHandle;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PurchaseResult {
-    /// purchased | already_owned | cancelled | failed
+    /// purchased | already_owned | cancelled | failed | checkout_opened (Paddle, in the browser)
     pub status: String,
     pub message: Option<String>,
     pub plan: Option<Value>,
@@ -45,6 +45,15 @@ mod store {
         let _ = service::save_plan(&state.db.lock().unwrap(), plan);
         let _ = app.emit("plan-changed", ());
         serde_json::to_value(plan).unwrap_or(Value::Null)
+    }
+
+    /// Opens a web page (Paddle checkout, the subscription page) in the person's browser.
+    pub fn open_in_browser(app: &AppHandle, url: &str) -> AppResult<()> {
+        use tauri_plugin_opener::OpenerExt;
+        if !url.starts_with("https://") {
+            return Err(AppError::invalid("unexpected link"));
+        }
+        app.opener().open_url(url, None::<&str>).map_err(|e| AppError::invalid(format!("Couldn't open your browser: {e}")))
     }
 
     pub fn paired(app: &AppHandle) -> bool {
@@ -123,6 +132,13 @@ pub async fn billing_purchase(app: AppHandle, product: String) -> AppResult<Purc
         let a = app.clone();
         blocking(move || {
             let relay = crate::sync::service::connect(&a)?;
+            let plan = relay.plan()?;
+            if plan.billing_provider.as_deref() == Some("paddle") {
+                // Paddle: checkout in the browser; the server hears about the payment directly
+                let url = relay.paddle_checkout(&product)?;
+                store::open_in_browser(&a, &url)?;
+                return Ok(PurchaseResult { status: "checkout_opened".into(), message: None, plan: Some(store::publish(&a, &plan)) });
+            }
             let tickets = relay.store_tickets()?;
             let id = crate::billing::store_id(&tickets.products, &product)?;
             let outcome = crate::billing::purchase(store::hwnd(&a), &id)?;
@@ -148,6 +164,25 @@ pub async fn billing_purchase(app: AppHandle, product: String) -> AppResult<Purc
     {
         let _ = (app, product);
         Err(AppError::invalid("There's nothing to buy in this edition of Dear Us."))
+    }
+}
+
+/// "Manage subscription" (Paddle): opens the page to cancel, change the card or see invoices.
+#[tauri::command]
+pub async fn billing_manage(app: AppHandle) -> AppResult<()> {
+    #[cfg(feature = "store")]
+    {
+        let a = app.clone();
+        return blocking(move || {
+            let url = crate::sync::service::connect(&a)?.paddle_portal()?;
+            store::open_in_browser(&a, &url)
+        })
+        .await;
+    }
+    #[cfg(not(feature = "store"))]
+    {
+        let _ = app;
+        Err(AppError::invalid("There's nothing to manage in this edition of Dear Us."))
     }
 }
 

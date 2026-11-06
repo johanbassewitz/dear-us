@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout — Dear Us</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="style.css">
+<!-- Paddle's checkout: opens for the purchase the Dear Us app started (?_ptxn=…) -->
+<script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+</head>
+<body>
+<header><a class="brand" href="./">dear us.<span class="by">by axiant.</span></a><nav><a href="support.html">Help</a><a href="terms.html">Terms</a></nav></header>
+<main>
+  <div id="waiting">
+    <h1>Opening the secure checkout…</h1>
+    <p class="lead">Payments are handled by Paddle, our reseller. If nothing opens, go back to Dear Us and choose Get Premium again.</p>
+  </div>
+  <div id="done" hidden>
+    <h1>Thank you ♡</h1>
+    <p class="lead">Your payment went through. Go back to Dear Us: it switches over for both of you within a few seconds. Your receipt is on its way by email.</p>
+  </div>
+  <div id="none" hidden>
+    <h1>Nothing to pay here</h1>
+    <p class="lead">This page opens from the Dear Us app. In the app: Settings → Your plan → Get Premium.</p>
+  </div>
+  <p class="muted">By paying you agree to our <a href="terms.html">terms</a> and Paddle's buyer terms. <a href="refund.html">14-day refunds.</a></p>
+</main>
+<script>
+  // Client-side token from Paddle → Developer tools → Authentication (safe to publish).
+  // test_… = sandbox (testing), live_… = real payments.
+  const PADDLE_CLIENT_TOKEN = "{{PADDLE_CLIENT_TOKEN}}";
+  const show = (id) => ["waiting", "done", "none"].forEach((x) => (document.getElementById(x).hidden = x !== id));
+  if (!new URLSearchParams(location.search).get("_ptxn")) show("none");
+  if (PADDLE_CLIENT_TOKEN.startsWith("test_")) Paddle.Environment.set("sandbox");
+  Paddle.Initialize({
+    token: PADDLE_CLIENT_TOKEN,
+    checkout: { settings: { displayMode: "overlay", theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light" } },
+    eventCallback(e) {
+      if (e.name === "checkout.completed") show("done");
+    },
+  });
+</script>
+</body>
+</html>

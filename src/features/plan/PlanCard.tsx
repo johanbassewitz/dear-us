@@ -68,26 +68,44 @@ export function PlanCard() {
             </Button>
           )}
           <BuyButton product="arrows_100" variant="secondary" />
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={restoring}
-            icon={restoring ? <Loader size={13} className="animate-spin" /> : <RotateCcw size={13} />}
-            onClick={async () => {
-              setRestoring(true);
-              try {
-                const p = await planApi.restore();
-                if (p) queryClient.setQueryData(planKeys.plan, p);
-                toast("Purchases checked ♡");
-              } catch (e) {
-                toastError(quotaError(e).message);
-              } finally {
-                setRestoring(false);
-              }
-            }}
-          >
-            Restore purchases
-          </Button>
+          {plan.billingProvider === "paddle" ? (
+            plan.tier === "premium" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    await planApi.manage();
+                  } catch (e) {
+                    toastError(quotaError(e).message);
+                  }
+                }}
+              >
+                Manage subscription
+              </Button>
+            )
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={restoring}
+              icon={restoring ? <Loader size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+              onClick={async () => {
+                setRestoring(true);
+                try {
+                  const p = await planApi.restore();
+                  if (p) queryClient.setQueryData(planKeys.plan, p);
+                  toast("Purchases checked ♡");
+                } catch (e) {
+                  toastError(quotaError(e).message);
+                } finally {
+                  setRestoring(false);
+                }
+              }}
+            >
+              Restore purchases
+            </Button>
+          )}
         </div>
       )}
       <p className="text-[11px] text-faint">Whatever the plan, your memories are never deleted or locked. They live on your PCs.</p>

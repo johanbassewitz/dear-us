@@ -38,6 +38,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 
+# opens Paddle checkout / the subscription page in the browser (Store edition)
+tauri-plugin-opener = { version = "2", optional = true }
 # QR code for linking a phone (Store edition)
 qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 
@@ -52,7 +54,7 @@ windows = { version = "0.61", optional = true, features = ["Services_Store", "Fo
 #   no self-updater (the Store updates the app). Build with --no-default-features --features store.
 default = ["updater"]
 updater = ["dep:tauri-plugin-updater", "dep:tauri-plugin-process"]
-store = ["dep:windows", "dep:qrcode"]
+store = ["dep:windows", "dep:qrcode", "dep:tauri-plugin-opener"]
 
 [dev-dependencies]
 tempfile = "3"

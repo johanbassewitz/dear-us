@@ -12,6 +12,19 @@ pub struct R2 {
 }
 
 #[derive(Clone)]
+pub struct Paddle {
+    /// https://api.paddle.com (live) or https://sandbox-api.paddle.com (testing)
+    pub api_base: String,
+    pub api_key: String,
+    /// "Secret key" of the webhook destination (Paddle → Developer tools → Notifications)
+    pub webhook_secret: String,
+    pub price_premium_monthly: String,
+    pub price_premium_yearly: String,
+    pub price_arrows_100: String,
+    pub price_arrows_300: Option<String>,
+}
+
+#[derive(Clone)]
 pub struct MicrosoftStore {
     pub tenant_id: String,
     pub client_id: String,
@@ -49,6 +62,9 @@ pub struct Config {
     pub gemini_model: String,
     pub gemini_fallback_model: String,
     pub microsoft: Option<MicrosoftStore>,
+    /// Payments through Paddle (checkout in the browser). Used instead of Microsoft Store
+    /// purchases when set.
+    pub paddle: Option<Paddle>,
     pub mail: Mail,
     pub trial_days: i64,
     /// Free tier: time capsules that can be sealed and waiting at the same time.
@@ -104,6 +120,21 @@ impl Config {
             gemini_model: opt("GEMINI_MODEL").unwrap_or_else(|| "gemini-flash-latest".into()),
             gemini_fallback_model: opt("GEMINI_FALLBACK_MODEL").unwrap_or_else(|| "gemini-flash-lite-latest".into()),
             microsoft,
+            paddle: match (opt("PADDLE_API_KEY"), opt("PADDLE_WEBHOOK_SECRET")) {
+                (Some(api_key), Some(webhook_secret)) => Some(Paddle {
+                    api_base: opt("PADDLE_API_BASE").unwrap_or_else(|| {
+                        if opt("PADDLE_ENV").as_deref() == Some("sandbox") { "https://sandbox-api.paddle.com".into() } else { "https://api.paddle.com".into() }
+                    }),
+                    api_key,
+                    webhook_secret,
+                    price_premium_monthly: opt("PADDLE_PRICE_PREMIUM_MONTHLY").ok_or("PADDLE_PRICE_PREMIUM_MONTHLY is required with Paddle")?,
+                    price_premium_yearly: opt("PADDLE_PRICE_PREMIUM_YEARLY").ok_or("PADDLE_PRICE_PREMIUM_YEARLY is required with Paddle")?,
+                    price_arrows_100: opt("PADDLE_PRICE_ARROWS_100").ok_or("PADDLE_PRICE_ARROWS_100 is required with Paddle")?,
+                    price_arrows_300: opt("PADDLE_PRICE_ARROWS_300"),
+                }),
+                (None, None) => None,
+                _ => return Err("set both PADDLE_API_KEY and PADDLE_WEBHOOK_SECRET (or neither)".into()),
+            },
             mail: match opt("RESEND_API_KEY") {
                 Some(api_key) => Mail::Resend { api_key, from: opt("MAIL_FROM").ok_or("MAIL_FROM is required with RESEND_API_KEY (e.g. Dear Us <no-reply@axiantlabs.dev>)")? },
                 None => Mail::Log,
@@ -130,6 +161,7 @@ impl Config {
             gemini_model: "gemini-flash-latest".into(),
             gemini_fallback_model: "gemini-flash-lite-latest".into(),
             microsoft: None,
+            paddle: None,
             mail: Mail::Memory(Default::default()),
             trial_days: 30,
             free_capsules: 3,

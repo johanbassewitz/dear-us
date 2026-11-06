@@ -160,6 +160,9 @@ pub struct Plan {
     #[serde(default)]
     pub capsule_limit: Option<i32>,
     pub billing_available: bool,
+    /// "paddle" (checkout in the browser) or "microsoft" (Store purchase dialog).
+    #[serde(default)]
+    pub billing_provider: Option<String>,
 }
 
 impl Plan {
@@ -276,6 +279,18 @@ impl CloudRelay {
     /// Leaves the shared space: nothing more is shared with the partner from now on.
     pub fn leave_space(&self) -> AppResult<()> {
         self.json::<Value>("POST", &self.sp("/leave"), Some(json!({}))).map(|_| ())
+    }
+
+    /// A Paddle checkout link for this couple (opens in the browser).
+    pub fn paddle_checkout(&self, product: &str) -> AppResult<String> {
+        let v: Value = self.json("POST", &self.sp("/billing/paddle/checkout"), Some(json!({ "product": product })))?;
+        v["url"].as_str().map(String::from).ok_or_else(|| AppError::invalid("Checkout couldn't start right now."))
+    }
+
+    /// The Paddle page to cancel the subscription, change the card or see invoices.
+    pub fn paddle_portal(&self) -> AppResult<String> {
+        let v: Value = self.json("POST", &self.sp("/billing/paddle/portal"), Some(json!({})))?;
+        v["url"].as_str().map(String::from).ok_or_else(|| AppError::invalid("The subscription page couldn't open right now."))
     }
 
     pub fn store_tickets(&self) -> AppResult<StoreTickets> {
@@ -413,6 +428,7 @@ mod tests {
             cupid_remaining: 10,
             capsule_limit: Some(3),
             billing_available: true,
+            billing_provider: Some("paddle".into()),
         };
         assert_eq!(p.engine_cap(), 100);
         p.media_cap_bytes = None;

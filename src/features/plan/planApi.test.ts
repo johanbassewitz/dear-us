@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { daysLeft, planNotice, quotaError, type Plan } from "./planApi";
+import { describe, expect, it, vi } from "vitest";
+import { daysLeft, planApi, planNotice, quotaError, waitForPayment, type Plan } from "./planApi";
 
 const MB = 1024 * 1024;
 const now = Date.parse("2026-11-05T12:00:00Z");
@@ -49,5 +49,21 @@ describe("plan errors", () => {
   it("separates the code from the message", () => {
     expect(quotaError(new Error("[cupid_quota] Cupid is out of arrows."))).toEqual({ code: "cupid_quota", message: "Cupid is out of arrows." });
     expect(quotaError("offline: no network")).toEqual({ code: null, message: "offline: no network" });
+  });
+});
+
+describe("paying in the browser", () => {
+  it("waits until the payment shows up on the server", async () => {
+    const get = vi.spyOn(planApi, "get").mockResolvedValueOnce(base).mockResolvedValueOnce({ ...base, tier: "premium" });
+    expect(await waitForPayment(base, "premium_monthly", { everyMs: 1, forMs: 1000 })).toBe(true);
+    expect(get).toHaveBeenCalledTimes(2);
+    get.mockReset();
+  });
+
+  it("notices arrows by the extra balance, and gives up quietly after a while", async () => {
+    vi.spyOn(planApi, "get").mockResolvedValue({ ...base, cupidBonus: 100 });
+    expect(await waitForPayment(base, "arrows_100", { everyMs: 1, forMs: 1000 })).toBe(true);
+    vi.spyOn(planApi, "get").mockResolvedValue(base);
+    expect(await waitForPayment(base, "arrows_100", { everyMs: 1, forMs: 20 })).toBe(false);
   });
 });

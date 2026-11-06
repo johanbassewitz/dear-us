@@ -58,8 +58,10 @@ pub struct Plan {
     pub cupid_remaining: i32,
     /// Time capsules that can be sealed and waiting at once (None = unlimited).
     pub capsule_limit: Option<i32>,
-    /// The Store add-ons can be bought (billing is configured on the server).
+    /// Premium and arrows can be bought (billing is configured on the server).
     pub billing_available: bool,
+    /// "paddle" (checkout in the browser) or "microsoft" (Store purchase dialog).
+    pub billing_provider: Option<&'static str>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -92,7 +94,14 @@ pub fn compute(cfg: &crate::config::Config, row: &SpaceRow, now: DateTime<Utc>) 
         cupid_bonus: row.cupid_bonus,
         cupid_remaining: (allowance - cupid_used).max(0) + row.cupid_bonus,
         capsule_limit: (!unlimited).then_some(cfg.free_capsules),
-        billing_available: cfg.microsoft.is_some(),
+        billing_available: cfg.paddle.is_some() || cfg.microsoft.is_some(),
+        billing_provider: if cfg.paddle.is_some() {
+            Some("paddle")
+        } else if cfg.microsoft.is_some() {
+            Some("microsoft")
+        } else {
+            None
+        },
     }
 }
 

@@ -16,6 +16,10 @@ struct Server {
 }
 
 async fn start() -> Option<Server> {
+    start_with(|_| {}).await
+}
+
+async fn start_with(tune: impl FnOnce(&mut Config)) -> Option<Server> {
     let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
         eprintln!("TEST_DATABASE_URL not set: skipping cloud API tests");
         return None;
@@ -23,7 +27,8 @@ async fn start() -> Option<Server> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let dir = std::env::temp_dir().join(format!("dearus-cloud-test-{}", Uuid::new_v4()));
-    let cfg = Config::for_tests(&url, &base, dir.to_str().unwrap());
+    let mut cfg = Config::for_tests(&url, &base, dir.to_str().unwrap());
+    tune(&mut cfg);
     let dear_us_cloud::config::Mail::Memory(mail) = cfg.mail.clone() else { unreachable!() };
     let state = build_state(cfg).await.expect("state");
     let db = state.db.clone();
@@ -414,4 +419,99 @@ async fn reporting_cupid_and_leaving_a_space() {
     assert_eq!(b.post(&format!("/v1/spaces/{space}/leave"), json!({})).await.0, StatusCode::OK);
     let left: i64 = sqlx::query_scalar("select count(*) from spaces where id = $1").bind(space).fetch_one(&s.db).await.unwrap();
     assert_eq!(left, 0);
+}
+
+/// A stand-in for Paddle's API: creates transactions and portal sessions.
+async fn fake_paddle() -> String {
+    use axum::routing::post;
+    let app = axum::Router::new()
+        .route(
+            "/transactions",
+            post(|axum::Json(b): axum::Json<Value>| async move {
+                assert_eq!(b["items"][0]["price_id"], "pri_month");
+                assert!(b["custom_data"]["space_id"].as_str().is_some());
+                axum::Json(json!({"data": {"id": "txn_1", "checkout": {"url": "https://dearus.example/checkout?_ptxn=txn_1"}}}))
+            }),
+        )
+        .route("/customers/{id}/portal-sessions", post(|| async { axum::Json(json!({"data": {"urls": {"general": {"overview": "https://customer-portal.paddle.com/x"}}}})) }));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+    base
+}
+
+fn signed(secret: &str, body: &Value) -> (String, String) {
+    use hmac::{Hmac, Mac};
+    let raw = body.to_string();
+    let ts = chrono::Utc::now().timestamp();
+    let mut m = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+    m.update(format!("{ts}:{raw}").as_bytes());
+    (format!("ts={ts};h1={}", hex::encode(m.finalize().into_bytes())), raw)
+}
+
+#[tokio::test]
+async fn paddle_checkout_webhooks_and_portal() {
+    let api = fake_paddle().await;
+    let Some(s) = start_with(|c| {
+        c.paddle = Some(dear_us_cloud::config::Paddle {
+            api_base: api.clone(),
+            api_key: "pdl_test_key".into(),
+            webhook_secret: "pdl_ntfset_test".into(),
+            price_premium_monthly: "pri_month".into(),
+            price_premium_yearly: "pri_year".into(),
+            price_arrows_100: "pri_a100".into(),
+            price_arrows_300: None,
+        })
+    })
+    .await
+    else {
+        return;
+    };
+    let (a, b, space, _, _) = couple(&s).await;
+    sqlx::query("update spaces set trial_ends_at = now() - interval '1 day' where id = $1").bind(space).execute(&s.db).await.unwrap();
+    let (_, p) = a.get(&format!("/v1/spaces/{space}/plan")).await;
+    assert_eq!(p["billing_provider"], "paddle");
+
+    // 1) checkout link (Paddle's, on our checkout page)
+    let (st, link) = a.post(&format!("/v1/spaces/{space}/billing/paddle/checkout"), json!({"product": "premium_monthly"})).await;
+    assert_eq!(st, StatusCode::OK, "{link}");
+    assert_eq!(link["url"], "https://dearus.example/checkout?_ptxn=txn_1");
+
+    let hook = |body: Value| {
+        let (sig, raw) = signed("pdl_ntfset_test", &body);
+        reqwest::Client::new().post(format!("{}/v1/billing/paddle/webhook", s.base)).header("Paddle-Signature", sig).body(raw).send()
+    };
+    // 2) a forged webhook is refused
+    let r = reqwest::Client::new().post(format!("{}/v1/billing/paddle/webhook", s.base)).header("Paddle-Signature", "ts=1;h1=00").body("{}").send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+
+    // 3) subscription created → Premium for both
+    let ends = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+    let sub_id = format!("sub_{}", Uuid::new_v4().simple());
+    let sub = json!({"event_type": "subscription.created", "data": {"id": sub_id, "status": "active", "customer_id": "ctm_1",
+        "custom_data": {"space_id": space, "user_id": a.user}, "items": [{"price": {"id": "pri_month"}}],
+        "current_billing_period": {"ends_at": ends}}});
+    assert_eq!(hook(sub.clone()).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(b.get(&format!("/v1/spaces/{space}/plan")).await.1["tier"], "premium", "the partner is covered too");
+    // buying again while Premium is refused
+    assert_eq!(a.post(&format!("/v1/spaces/{space}/billing/paddle/checkout"), json!({"product": "premium_yearly"})).await.0, StatusCode::BAD_REQUEST);
+    // 4) the portal link
+    let (st, portal) = b.post(&format!("/v1/spaces/{space}/billing/paddle/portal"), json!({})).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(portal["url"], "https://customer-portal.paddle.com/x");
+
+    // 5) arrows, exactly once even if Paddle retries
+    let txn_id = format!("txn_{}", Uuid::new_v4().simple());
+    let txn = json!({"event_type": "transaction.completed", "data": {"id": txn_id, "custom_data": {"space_id": space, "user_id": b.user},
+        "items": [{"price": {"id": "pri_a100"}, "quantity": 1}]}});
+    hook(txn.clone()).await.unwrap();
+    hook(txn).await.unwrap();
+    assert_eq!(a.get(&format!("/v1/spaces/{space}/plan")).await.1["cupid_bonus"], 100);
+
+    // 6) cancelled at the end of the period → back to the free plan, memories untouched
+    let mut cancelled = sub.clone();
+    cancelled["event_type"] = json!("subscription.canceled");
+    cancelled["data"]["status"] = json!("canceled");
+    hook(cancelled).await.unwrap();
+    assert_eq!(a.get(&format!("/v1/spaces/{space}/plan")).await.1["tier"], "free");
 }

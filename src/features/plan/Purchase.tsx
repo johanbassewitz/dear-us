@@ -1,16 +1,23 @@
 import { useState } from "react";
 import { Feather, Heart, Loader, Sparkles } from "lucide-react";
 import { create } from "zustand";
-import { PRODUCTS, planApi, planKeys, quotaError, type Product } from "./planApi";
+import { PRODUCTS, planApi, planKeys, quotaError, waitForPayment, type Plan, type Product } from "./planApi";
 import { queryClient } from "../../lib/queries";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { toast, toastError } from "../../components/ui/Toast";
 
-/** Opens the Store's purchase dialog; the cloud confirms it with Microsoft. */
+/** Starts a purchase: Paddle checkout in the browser (or the Store dialog if that's configured). */
 export async function buy(product: Product): Promise<boolean> {
   try {
+    const before = queryClient.getQueryData<Plan | null>(planKeys.plan) ?? null;
     const r = await planApi.purchase(product);
+    if (r.status === "checkout_opened") {
+      toast("Checkout opened in your browser. Come back here when you're done ♡");
+      const paid = await waitForPayment(r.plan ?? before, product);
+      if (paid) toast(product.startsWith("arrows") ? "Cupid's quiver is full again ♡" : "Welcome to Dear Us Premium ♡ for both of you");
+      return paid;
+    }
     if (r.plan) queryClient.setQueryData(planKeys.plan, r.plan);
     queryClient.invalidateQueries({ queryKey: ["cupid", "status"] });
     if (r.status === "purchased" || r.status === "already_owned") {
@@ -74,7 +81,10 @@ export function UpgradeDialog() {
         <BuyButton product="premium_yearly" size="md" onDone={hide} />
         <BuyButton product="premium_monthly" variant="secondary" size="md" onDone={hide} />
       </div>
-      <p className="mt-3 text-[11px] text-faint">Billed by the Microsoft Store, which shows the exact price in your currency. Cancel anytime in your Microsoft account.</p>
+      <p className="mt-3 text-[11px] text-faint">
+        Secure checkout in your browser by Paddle, our reseller, which shows the price in your currency with taxes included. Cancel anytime from Settings → Your plan → Manage
+        subscription.
+      </p>
     </Modal>
   );
 }

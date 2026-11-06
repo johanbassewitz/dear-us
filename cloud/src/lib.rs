@@ -78,6 +78,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/spaces/{space}/cupid/report", post(cupid::report))
         .route("/v1/spaces/{space}/leave", post(s::leave))
         .route("/v1/billing/microsoft/tickets", post(billing::microsoft::tickets))
+        .route("/v1/billing/paddle/webhook", post(billing::paddle::webhook))
+        .route("/v1/spaces/{space}/billing/paddle/checkout", post(billing::paddle::checkout))
+        .route("/v1/spaces/{space}/billing/paddle/portal", post(billing::paddle::portal))
         .route("/v1/spaces/{space}/billing/microsoft/sync", post(billing::microsoft::sync))
         .route("/v1/local-chunks/{*key}", put(storage::local_put).get(storage::local_get))
         // envelopes can be large (a batch of ops); chunks go to R2 directly in production

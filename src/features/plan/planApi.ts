@@ -21,11 +21,13 @@ export interface Plan {
   /** Time capsules that can be sealed and waiting at once (null = unlimited). */
   capsuleLimit?: number | null;
   billingAvailable: boolean;
+  /** "paddle": checkout in the browser. "microsoft": the Store's purchase dialog. */
+  billingProvider?: "paddle" | "microsoft" | null;
 }
 
 export type Product = "premium_monthly" | "premium_yearly" | "arrows_100" | "arrows_300";
 export interface PurchaseResult {
-  status: "purchased" | "already_owned" | "cancelled" | "failed";
+  status: "purchased" | "already_owned" | "cancelled" | "failed" | "checkout_opened";
   message: string | null;
   plan: Plan | null;
 }
@@ -42,6 +44,7 @@ export const planApi = {
   get: (refresh: boolean) => call<Plan | null>("plan_get", { refresh }),
   purchase: (product: Product) => call<PurchaseResult>("billing_purchase", { product }),
   restore: () => call<Plan | null>("billing_restore"),
+  manage: () => call<void>("billing_manage"),
 };
 
 export const planKeys = { plan: ["plan"] as const };
@@ -136,4 +139,28 @@ export function planNotice(plan: Plan | null | undefined, waitingForSpace: boole
       };
   }
   return null;
+}
+
+/**
+ * After a checkout opened in the browser: watches the plan until the payment shows up
+ * (Paddle tells our server within seconds). Resolves true when it did.
+ */
+export async function waitForPayment(before: Plan | null, product: Product, opts = { everyMs: 4000, forMs: 10 * 60_000 }): Promise<boolean> {
+  const done = (p: Plan | null) =>
+    !!p && (product.startsWith("arrows") ? p.cupidBonus > (before?.cupidBonus ?? 0) : p.tier === "premium");
+  const until = Date.now() + opts.forMs;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, opts.everyMs));
+    try {
+      const p = await planApi.get(true);
+      if (done(p)) {
+        queryClient.setQueryData(planKeys.plan, p);
+        queryClient.invalidateQueries({ queryKey: ["cupid", "status"] });
+        return true;
+      }
+    } catch {
+      /* offline for a moment: keep waiting */
+    }
+  }
+  return false;
 }

@@ -59,7 +59,7 @@ export function DeleteAccountButton() {
             Your account and anything still waiting in the Dear Us cloud for your devices are deleted. This can't be undone.
           </li>
           <li>
-            Paying for Premium? Cancel it in your Microsoft account (account.microsoft.com → Subscriptions) so it isn't renewed.
+            Paying for Premium? Cancel it first (Settings → Your plan → Manage subscription) so it isn't renewed.
           </li>
         </ul>
         <Field label="Your password, to confirm" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />

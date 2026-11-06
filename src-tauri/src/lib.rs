@@ -67,6 +67,9 @@ pub fn run() {
     // self-updater: the Microsoft Store updates it.
     #[cfg(feature = "updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
+    // Store edition: checkout and the subscription page open in the person's browser.
+    #[cfg(feature = "store")]
+    let builder = builder.plugin(tauri_plugin_opener::init());
     builder
         .register_asynchronous_uri_scheme_protocol("media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -201,6 +204,7 @@ pub fn run() {
             commands::plan::plan_get,
             commands::plan::billing_purchase,
             commands::plan::billing_restore,
+            commands::plan::billing_manage,
             commands::cupid::cupid_status,
             commands::cupid::cupid_set_option,
             commands::cupid::cupid_set_key,

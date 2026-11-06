@@ -208,8 +208,15 @@ pub async fn sync(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, 
 
 /// premium_until = the latest paid-through date of any counting subscription for the space.
 pub async fn refresh_premium(state: &AppState, space: Uuid) -> ApiResult<()> {
-    let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as("select state, expires_at from subscriptions where space_id = $1").bind(space).fetch_all(&state.db).await?;
-    let until = rows.into_iter().filter(|(s, _)| subscription_counts(s)).map(|(_, e)| e + Duration::days(GRACE_DAYS)).max();
+    let rows: Vec<(String, String, DateTime<Utc>)> = sqlx::query_as("select store, state, expires_at from subscriptions where space_id = $1").bind(space).fetch_all(&state.db).await?;
+    let until = rows
+        .into_iter()
+        .filter_map(|(store, st, e)| match store.as_str() {
+            // Paddle: active/trialing/past_due run to the end of the paid period (+1 day for a renewal to land)
+            "paddle" => matches!(st.as_str(), "active" | "trialing" | "past_due").then_some(e + Duration::days(1)),
+            _ => subscription_counts(&st).then_some(e + Duration::days(GRACE_DAYS)),
+        })
+        .max();
     sqlx::query("update spaces set premium_until = $2 where id = $1").bind(space).bind(until).execute(&state.db).await?;
     Ok(())
 }

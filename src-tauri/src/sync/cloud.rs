@@ -16,7 +16,7 @@ use std::time::Duration;
 pub const CLOUD_URL: &str = match option_env!("DEARUS_CLOUD_URL") {
     // an empty variable (e.g. an unset CI setting) means "use the default"
     Some(u) if !u.is_empty() => u,
-    _ => "https://dearus-api.axiantlabs.dev",
+    _ => "https://dearus-api.axianthq.com",
 };
 
 #[derive(Debug, Clone)]

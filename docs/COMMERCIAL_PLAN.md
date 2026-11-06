@@ -107,7 +107,7 @@ Dear Us transitions from an open-source/hobby desktop app into a cross-platform 
 | **Windows** | Microsoft Store | 15% | Microsoft Store IAP / MSIX package |
 | **iOS / Mac** | Apple App Store | 15% (Small Business) | Apple StoreKit (via RevenueCat) |
 | **Android** | Google Play Store | 15% | Google Play Billing (via RevenueCat) |
-| **Web** | `axiantlabs.dev` direct | ~5% | Stripe / Lemon Squeezy (via RevenueCat) |
+| **Web** | `axianthq.com` direct | ~5% | Stripe / Lemon Squeezy (via RevenueCat) |
 
 ### Technical Roadmap
 1. **Unified Backend**: Migrate from user-supplied Supabase keys to your own managed Supabase/PostgreSQL instance.

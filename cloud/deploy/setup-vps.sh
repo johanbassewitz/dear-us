@@ -24,7 +24,7 @@ if [ ! -f .env ]; then
   cp .env.example .env
   sed -i "s|^SERVER_SECRET=.*|SERVER_SECRET=$(openssl rand -hex 32)|" .env
   sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
-  read -rp "Your API domain (e.g. dearus-api.axiantlabs.dev): " domain
+  read -rp "Your API domain (e.g. dearus-api.axianthq.com): " domain
   sed -i "s|^API_DOMAIN=.*|API_DOMAIN=${domain}|; s|^PUBLIC_URL=.*|PUBLIC_URL=https://${domain}|" .env
   chmod 600 .env
   echo

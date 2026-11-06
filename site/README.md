@@ -1,4 +1,4 @@
-# Dear Us website (dearus.axiantlabs.dev)
+# Dear Us website (dearus.axianthq.com)
 
 Landing page, privacy policy, terms of use and help, linked from every page's footer (the
 Microsoft Store needs the privacy policy URL; the terms can be used as the app's license terms).
@@ -19,12 +19,12 @@ markets, have a lawyer read them.
 ## Host it (free) on Cloudflare Pages
 1. dash.cloudflare.com → Workers & Pages → Create → Pages → Connect to Git → this repository.
    Framework preset: none, build command: empty, output directory: `site`, branch: `main`.
-2. Custom domains → add `dearus.axiantlabs.dev` (the domain must be in the same Cloudflare account).
-3. Email: Cloudflare → axiantlabs.dev → Email → Email Routing → add `support@axiantlabs.dev`
+2. Custom domains → add `dearus.axianthq.com` (the domain must be in the same Cloudflare account).
+3. Email: Cloudflare → axianthq.com → Email → Email Routing → add `dearus@axianthq.com`
    forwarding to your own inbox (free). Replies go out from your own email.
 
 URLs for Partner Center:
-- Privacy policy: `https://dearus.axiantlabs.dev/privacy.html`
-- Website: `https://dearus.axiantlabs.dev/`
-- Support: `https://dearus.axiantlabs.dev/support.html` (or support@axiantlabs.dev)
-- License terms (optional): `https://dearus.axiantlabs.dev/terms.html`
+- Privacy policy: `https://dearus.axianthq.com/privacy.html`
+- Website: `https://dearus.axianthq.com/`
+- Support: `https://dearus.axianthq.com/support.html` (or dearus@axianthq.com)
+- License terms (optional): `https://dearus.axianthq.com/terms.html`

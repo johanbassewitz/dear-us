@@ -16,14 +16,14 @@
     -IdentityName "12345DearUs.DearUs" `
     -Publisher "CN=00000000-0000-0000-0000-000000000000" `
     -PublisherDisplayName "Dear Us" `
-    -CloudUrl "https://dearus-api.axiantlabs.dev"
+    -CloudUrl "https://dearus-api.axianthq.com"
 #>
 param(
   # default: packaging/msix/identity.json
   [string]$IdentityName,
   [string]$Publisher,
   [string]$PublisherDisplayName,
-  [string]$CloudUrl = "https://dearus-api.axiantlabs.dev",
+  [string]$CloudUrl = "https://dearus-api.axianthq.com",
   [string]$OutDir = "dist-msix",
   [switch]$SkipBuild,
   [switch]$AllowUnpinnedFfmpeg,
@@ -49,7 +49,7 @@ if ($TestBuild -and ($IdentityName -match 'XXXX' -or $Publisher -match 'XXXX')) 
   Write-Warning "Test build: using a test identity. Fill in packaging/msix/identity.json for Store uploads."
 }
 if ($TestBuild) { $AllowUnpinnedFfmpeg = $true }
-if (-not $CloudUrl) { $CloudUrl = "https://dearus-api.axiantlabs.dev" }
+if (-not $CloudUrl) { $CloudUrl = "https://dearus-api.axianthq.com" }
 if ($IdentityName -match 'XXXX' -or $Publisher -match 'XXXX') {
   throw "Fill in packaging/msix/identity.json (or pass -IdentityName/-Publisher) with the values from Partner Center."
 }

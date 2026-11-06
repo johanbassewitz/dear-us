@@ -73,10 +73,10 @@ Partner Center → Store listings → Store logos: upload `src-tauri/icons/Squar
 (620×620) as the 1:1 logo; the 2:3 poster is optional.
 
 ## URLs
-- Privacy policy: `https://dearus.axiantlabs.dev/privacy.html`
-- Website: `https://dearus.axiantlabs.dev/`
-- Support contact: `support@axiantlabs.dev`
-- License terms: `https://dearus.axiantlabs.dev/terms.html` (Partner Center → Store listing → additional license terms)
+- Privacy policy: `https://dearus.axianthq.com/privacy.html`
+- Website: `https://dearus.axianthq.com/`
+- Support contact: `dearus@axianthq.com`
+- License terms: `https://dearus.axianthq.com/terms.html` (Partner Center → Store listing → additional license terms)
 
 ## Publisher name
 Publisher display name: "axiant." (your DBA on the individual account). Never "Inc", "Ltd" or

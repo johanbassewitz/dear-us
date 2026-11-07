@@ -141,7 +141,7 @@ $values = @{
   "{{EXECUTABLE}}"             = $exeName
 }
 foreach ($k in $values.Keys) { $manifest = $manifest.Replace($k, $values[$k]) }
-if ($manifest -match '\{\{') { throw "AppxManifest.xml still has unfilled {{…}} values" }
+if ($manifest -match '\{\{[A-Z_]+\}\}') { throw "AppxManifest.xml still has unfilled placeholders: $($Matches[0])" }
 Set-Content (Join-Path $layout "AppxManifest.xml") $manifest -Encoding UTF8
 
 if ($makepri) {

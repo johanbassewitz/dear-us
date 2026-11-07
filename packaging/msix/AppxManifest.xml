@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Dear Us — Microsoft Store (MSIX) manifest template. build-msix.ps1 fills in the {{…}} values.
+  Dear Us — Microsoft Store (MSIX) manifest template. build-msix.ps1 fills in the placeholders.
   IDENTITY_NAME, PUBLISHER and PUBLISHER_DISPLAY_NAME must match Partner Center exactly:
   Partner Center → your app → Product management → Product identity.
 -->

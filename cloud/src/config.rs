@@ -58,6 +58,12 @@ pub struct Config {
     pub r2: Option<R2>,
     /// Without R2, chunks are kept on this disk (development / tiny self-hosting).
     pub local_storage_dir: String,
+    /// Cupid through OpenRouter (preferred when set): one key, many models, pay as you go.
+    pub openrouter_key: Option<String>,
+    pub openrouter_base: String,
+    pub openrouter_model: String,
+    pub openrouter_fallback_model: String,
+    /// Cupid directly through Google's Gemini API (used only without OpenRouter).
     pub gemini_key: Option<String>,
     pub gemini_model: String,
     pub gemini_fallback_model: String,
@@ -120,6 +126,10 @@ impl Config {
             secret: secret.into_bytes(),
             r2,
             local_storage_dir: opt("LOCAL_STORAGE_DIR").unwrap_or_else(|| "./data/chunks".into()),
+            openrouter_key: opt("OPENROUTER_API_KEY"),
+            openrouter_base: opt("OPENROUTER_BASE").unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
+            openrouter_model: opt("OPENROUTER_MODEL").unwrap_or_else(|| "google/gemini-2.5-flash-lite".into()),
+            openrouter_fallback_model: opt("OPENROUTER_FALLBACK_MODEL").unwrap_or_else(|| "openai/gpt-4o-mini".into()),
             gemini_key: opt("GEMINI_API_KEY"),
             gemini_model: opt("GEMINI_MODEL").unwrap_or_else(|| "gemini-flash-latest".into()),
             gemini_fallback_model: opt("GEMINI_FALLBACK_MODEL").unwrap_or_else(|| "gemini-flash-lite-latest".into()),
@@ -161,6 +171,10 @@ impl Config {
             secret: b"test-secret-test-secret-test-secret-0123".to_vec(),
             r2: None,
             local_storage_dir: dir.into(),
+            openrouter_key: None,
+            openrouter_base: "http://127.0.0.1:9".into(),
+            openrouter_model: "test/cheap".into(),
+            openrouter_fallback_model: "test/fallback".into(),
             gemini_key: None,
             gemini_model: "gemini-flash-latest".into(),
             gemini_fallback_model: "gemini-flash-lite-latest".into(),
@@ -198,7 +212,7 @@ mod tests {
             std::env::set_var(k, v);
         }
         let c = Config::from_env().expect("starts without the service keys");
-        assert!(c.r2.is_none() && c.paddle.is_none() && c.gemini_key.is_none());
+        assert!(c.r2.is_none() && c.paddle.is_none() && c.gemini_key.is_none() && c.openrouter_key.is_none());
         assert_eq!(c.bind, "0.0.0.0:10000");
     }
 }

@@ -1,6 +1,9 @@
 //! Cupid's gateway: the app sends the conversation (never journal text, letters or photos —
-//! the app's privacy rules decide what goes in), we add our Gemini key, take one arrow from the
-//! couple's quiver, and give it back if Gemini couldn't answer.
+//! the app's privacy rules decide what goes in), we add our AI key, take one arrow from the
+//! couple's quiver, and give it back if the AI couldn't answer.
+//!
+//! Provider: OpenRouter (OPENROUTER_API_KEY; model in OPENROUTER_MODEL, a cheap one by
+//! default) or, without it, Google's Gemini API directly (GEMINI_API_KEY).
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
@@ -38,6 +41,95 @@ pub struct CupidIn {
 pub struct CupidOut {
     pub reply: String,
     pub plan: Plan,
+}
+
+/// OpenRouter (OpenAI-style chat completions). `data_collection: deny` keeps requests away from
+/// providers that may store or train on them.
+pub fn openrouter_body(model: &str, system: &str, turns: &[Turn], json_reply: bool) -> Value {
+    let mut messages = vec![json!({ "role": "system", "content": system })];
+    messages.extend(turns.iter().map(|t| json!({ "role": if t.role == "model" { "assistant" } else { "user" }, "content": t.text })));
+    let mut body = json!({
+        "model": model,
+        "messages": messages,
+        "temperature": 0.9,
+        "max_tokens": 800,
+        "provider": { "data_collection": "deny" },
+    });
+    if json_reply {
+        body["response_format"] = json!({ "type": "json_object" });
+    }
+    body
+}
+
+pub fn parse_openrouter(v: &Value) -> Result<String, ApiError> {
+    let choice = &v["choices"][0];
+    if choice["finish_reason"].as_str() == Some("content_filter") {
+        return Err(ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "cupid_declined", "Cupid can't help with that one."));
+    }
+    let text = choice["message"]["content"].as_str().unwrap_or_default();
+    if text.trim().is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "cupid_empty", "Cupid didn't come up with anything this time. Try again?"));
+    }
+    Ok(text.trim().to_string())
+}
+
+async fn call_openrouter(state: &AppState, key: &str, system: &str, turns: &[Turn], json_reply: bool) -> ApiResult<String> {
+    let busy = || ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "cupid_busy", "Cupid is very busy right now. Try again in a few minutes.");
+    let cfg = &state.cfg;
+    for m in [cfg.openrouter_model.as_str(), cfg.openrouter_fallback_model.as_str()] {
+        let r = state
+            .http
+            .post(format!("{}/chat/completions", cfg.openrouter_base))
+            .bearer_auth(key)
+            .header("HTTP-Referer", "https://dearus.axianthq.com")
+            .header("X-Title", "Dear Us")
+            .timeout(Duration::from_secs(60))
+            .json(&openrouter_body(m, system, turns, json_reply))
+            .send()
+            .await;
+        match r {
+            Ok(r) if r.status().is_success() => {
+                let v: Value = r.json().await.map_err(ApiError::internal)?;
+                // OpenRouter can answer 200 with an error object (e.g. the provider failed)
+                if v.get("error").is_some() && v["choices"].is_null() {
+                    tracing::warn!("openrouter {m}: {}", v["error"]["message"].as_str().unwrap_or("error"));
+                    continue;
+                }
+                return parse_openrouter(&v);
+            }
+            Ok(r) if r.status().as_u16() == 403 => return Err(ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "cupid_declined", "Cupid can't help with that one.")),
+            Ok(r) if r.status().as_u16() == 402 => {
+                tracing::error!("openrouter: out of credits — top up at openrouter.ai/credits");
+                return Err(ApiError::unavailable("Cupid is resting right now. Try again later."));
+            }
+            // busy, or (404) no provider for this model meets the data policy: try the fallback model
+            Ok(r) if matches!(r.status().as_u16(), 404 | 408 | 429 | 500 | 502 | 503 | 504) => {
+                let status = r.status();
+                let text = r.text().await.unwrap_or_default();
+                tracing::warn!("openrouter {m} said {status}: {}", text.chars().take(200).collect::<String>());
+                continue;
+            }
+            Ok(r) => {
+                let status = r.status();
+                let text = r.text().await.unwrap_or_default();
+                tracing::error!("openrouter {m} said {status}: {}", text.chars().take(300).collect::<String>());
+                return Err(busy());
+            }
+            Err(e) => {
+                tracing::warn!("openrouter {m} unreachable: {e}");
+                continue;
+            }
+        }
+    }
+    Err(busy())
+}
+
+/// One answer from whichever AI provider is configured.
+async fn call_llm(state: &AppState, system: &str, turns: &[Turn], json_reply: bool) -> ApiResult<String> {
+    if let Some(key) = &state.cfg.openrouter_key {
+        return call_openrouter(state, key, system, turns, json_reply).await;
+    }
+    call_gemini(state, &request_body(system, turns, json_reply)).await
 }
 
 pub fn request_body(system: &str, turns: &[Turn], json_reply: bool) -> Value {
@@ -115,20 +207,19 @@ async fn call_gemini(state: &AppState, body: &Value) -> ApiResult<String> {
 pub async fn ask(State(state): State<Arc<AppState>>, AuthUser(user): AuthUser, Path(space): Path<Uuid>, Json(b): Json<CupidIn>) -> ApiResult<Json<CupidOut>> {
     require_member(&state.db, space, user).await?;
     validate(&b)?;
-    let body = request_body(&b.system, &b.turns, b.json);
     if b.kind == "daily_pick" {
         // free, once per space per day: the app quietly uses its fixed pick otherwise
         let r = sqlx::query("update spaces set daily_pick_on = current_date where id = $1 and daily_pick_on is distinct from current_date").bind(space).execute(&state.db).await?;
         if r.rows_affected() == 0 {
             return Err(ApiError::new(StatusCode::CONFLICT, "already_picked", "Today's question was already picked."));
         }
-        let reply = call_gemini(&state, &body).await?;
+        let reply = call_llm(&state, &b.system, &b.turns, b.json).await?;
         return Ok(Json(CupidOut { reply, plan: plan::current(&state, space).await? }));
     }
     let mut tx = state.db.begin().await?;
     let (after, source) = plan::take_arrow(&mut tx, &state.cfg, space).await?;
     tx.commit().await?;
-    match call_gemini(&state, &body).await {
+    match call_llm(&state, &b.system, &b.turns, b.json).await {
         Ok(reply) => Ok(Json(CupidOut { reply, plan: after })),
         Err(e) => {
             if let Err(re) = plan::refund_arrow(&state, space, &after.period, source).await {
@@ -150,6 +241,19 @@ mod tests {
         assert_eq!(b["generationConfig"]["responseMimeType"], "application/json");
         assert_eq!(parse_reply(&json!({"candidates":[{"content":{"parts":[{"text":" hey "}]}}]})).unwrap(), "hey");
         assert_eq!(parse_reply(&json!({"promptFeedback":{"blockReason":"SAFETY"}})).unwrap_err().code, "cupid_declined");
+    }
+
+    #[test]
+    fn openrouter_requests_and_replies() {
+        let turns = [Turn { role: "user".into(), text: "hi".into() }, Turn { role: "model".into(), text: "yo".into() }];
+        let b = openrouter_body("google/gemini-2.5-flash-lite", "be kind", &turns, true);
+        assert_eq!(b["messages"][0]["role"], "system");
+        assert_eq!(b["messages"][2]["role"], "assistant");
+        assert_eq!(b["response_format"]["type"], "json_object");
+        assert_eq!(b["provider"]["data_collection"], "deny", "no providers that store or train on prompts");
+        assert_eq!(parse_openrouter(&json!({"choices":[{"message":{"content":" hello "}}]})).unwrap(), "hello");
+        assert_eq!(parse_openrouter(&json!({"choices":[{"finish_reason":"content_filter","message":{"content":""}}]})).unwrap_err().code, "cupid_declined");
+        assert_eq!(parse_openrouter(&json!({"choices":[]})).unwrap_err().code, "cupid_empty");
     }
 
     #[test]

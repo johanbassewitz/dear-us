@@ -515,3 +515,42 @@ async fn paddle_checkout_webhooks_and_portal() {
     hook(cancelled).await.unwrap();
     assert_eq!(a.get(&format!("/v1/spaces/{space}/plan")).await.1["tier"], "free");
 }
+
+/// A stand-in for OpenRouter: the first (cheap) model is "busy", the fallback answers.
+async fn fake_openrouter() -> String {
+    use axum::routing::post;
+    let app = axum::Router::new().route(
+        "/chat/completions",
+        post(|headers: axum::http::HeaderMap, axum::Json(b): axum::Json<Value>| async move {
+            assert_eq!(headers.get("authorization").unwrap(), "Bearer sk-or-test");
+            assert_eq!(b["messages"][0]["role"], "system");
+            assert_eq!(b["provider"]["data_collection"], "deny");
+            if b["model"] == "test/cheap" {
+                return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({"error": {"message": "overloaded"}})));
+            }
+            (axum::http::StatusCode::OK, axum::Json(json!({"choices": [{"message": {"role": "assistant", "content": "Try a sunset picnic ♡"}}]})))
+        }),
+    );
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+    base
+}
+
+#[tokio::test]
+async fn cupid_answers_through_openrouter_and_uses_one_arrow() {
+    let base = fake_openrouter().await;
+    let Some(s) = start_with(|c| {
+        c.openrouter_key = Some("sk-or-test".into());
+        c.openrouter_base = base.clone();
+    })
+    .await
+    else {
+        return;
+    };
+    let (a, _b, space, _, _) = couple(&s).await;
+    let (st, r) = a.post(&format!("/v1/spaces/{space}/cupid"), json!({"kind": "chat", "system": "You are Cupid.", "turns": [{"role": "user", "text": "a date idea?"}]})).await;
+    assert_eq!(st, StatusCode::OK, "{r}");
+    assert_eq!(r["reply"], "Try a sunset picnic ♡", "the fallback model answered");
+    assert_eq!(r["plan"]["cupid_used"], 1);
+}

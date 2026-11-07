@@ -35,14 +35,14 @@
 </table>
 
 <h2>Cupid</h2>
-<p>When you use Cupid, only what's needed for that request is sent: the messages you type to Cupid (with a few earlier messages of that chat), a shortlist of questions, or your date-idea filters (and open bucket-list titles only if you allow it in Settings). Never your journal, letters, time capsules, photos or videos. Requests go through our server to Google's Gemini API (paid tier, where Google doesn't use them to improve its products) and are not stored by us. Your Cupid chat history stays on your PC.</p>
+<p>When you use Cupid, only what's needed for that request is sent: the messages you type to Cupid (with a few earlier messages of that chat), a shortlist of questions, or your date-idea filters (and open bucket-list titles only if you allow it in Settings). Never your journal, letters, time capsules, photos or videos. Requests go through our server to OpenRouter, which passes them to the AI model that writes the answer (currently a Google Gemini model). We only allow AI providers that don't store requests or use them for training, and we don't store them either. Your Cupid chat history stays on your PC.</p>
 
 <h2>Who helps us run the service</h2>
 <table>
 <tr><th>Provider</th><th>What for</th></tr>
 <tr><td>Hetzner Online GmbH (servers in the EU)</td><td>The server and database</td></tr>
 <tr><td>Cloudflare (R2)</td><td>Temporary storage of encrypted photo/video pieces in transit</td></tr>
-<tr><td>Google (Gemini API)</td><td>Cupid's answers</td></tr>
+<tr><td>OpenRouter, and the AI provider it routes to (currently Google)</td><td>Cupid's answers (only providers that don't store or train on requests)</td></tr>
 <tr><td>Resend</td><td>Sending password-reset emails</td></tr>
 <tr><td>Paddle.com</td><td>Payments, as our reseller and Merchant of Record. Paddle collects and processes your payment and billing details under its own <a href="https://www.paddle.com/legal/privacy">privacy policy</a>; we never see your card.</td></tr>
 <tr><td>Microsoft</td><td>Distributing the app through the Microsoft Store</td></tr>

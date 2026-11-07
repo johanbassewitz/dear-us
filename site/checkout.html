@@ -29,7 +29,7 @@
 <script>
   // Client-side token from Paddle → Developer tools → Authentication (safe to publish).
   // test_… = sandbox (testing), live_… = real payments.
-  const PADDLE_CLIENT_TOKEN = "{{PADDLE_CLIENT_TOKEN}}";
+  const PADDLE_CLIENT_TOKEN = "test_4fc914714f3de4a5c781ae2c4fa";
   const show = (id) => ["waiting", "done", "none"].forEach((x) => (document.getElementById(x).hidden = x !== id));
   if (!new URLSearchParams(location.search).get("_ptxn")) show("none");
   if (PADDLE_CLIENT_TOKEN.startsWith("test_")) Paddle.Environment.set("sandbox");
